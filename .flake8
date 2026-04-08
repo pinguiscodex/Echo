@@ -1,0 +1,59 @@
+[flake8]
+max-line-length = 100
+max-doc-length = 120
+extend-ignore =
+    # Style (handled by black)
+    E203,
+    W503,
+    # Docstrings
+    D100,
+    D104,
+    D107,
+    D203,
+    D205,
+    D213,
+    D301,
+    D401,
+    D102,
+    D105,
+    D106,
+    # Import order (handled by isort)
+    I100,
+    I201,
+    I202,
+    # Naming
+    N806,
+    # F-strings without placeholders
+    F541,
+    # Function call in default (acceptable pattern)
+    B008,
+    # Redundant exception types
+    B014,
+    # Unused loop var (acceptable)
+    B007,
+per-file-ignores =
+    # Allow re-exports in __init__.py
+    src/echo/__init__.py:F401
+    src/echo/core/__init__.py:F401
+    src/echo/tools/__init__.py:F401
+    src/echo/utils/__init__.py:F401
+    src/echo/services/__init__.py:F401
+    # System prompt strings - intentionally long lines
+    src/echo/cli.py:E501
+    src/echo/config.py:E501
+    src/echo/core/agent.py:E501
+    src/echo/core/chatbot.py:E501
+    src/echo/tools/_toolkit.py:E501
+    src/echo/tools/filesystem.py:E501
+    src/echo/tools/research.py:E501
+    # Tests
+    tests/*:D100,D101,D102,D103,D104,S101,F401,F841
+exclude =
+    .git,
+    __pycache__,
+    venv,
+    .venv,
+    build,
+    dist,
+    *.egg-info,
+    stubs,
