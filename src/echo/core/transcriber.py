@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from echo.config import get_settings
 
@@ -12,7 +11,7 @@ logger = logging.getLogger(__name__)
 class WhisperTranscriber:
     """Speech-to-text transcription using faster-whisper (CTranslate2 backend)."""
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: str | None = None):
         """Initialize the Whisper transcriber.
 
         Args:
@@ -48,7 +47,7 @@ class WhisperTranscriber:
 
         return self._model
 
-    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> str:
+    def transcribe(self, audio_path: Path, language: str | None = None) -> str:
         """Transcribe audio file to text using faster-whisper.
 
         Args:
@@ -97,11 +96,11 @@ class WhisperTranscriber:
             logger.error("Transcription failed: %s", e, exc_info=True)
             raise
 
-    def transcribe_async(self, audio_path: Path, language: Optional[str] = None) -> str:
+    def transcribe_async(self, audio_path: Path, language: str | None = None) -> str:
         """Synchronous transcribe (alias for transcribe)."""
         return self.transcribe(audio_path, language)
 
-    def get_segments(self, audio_path: Path, language: Optional[str] = None):
+    def get_segments(self, audio_path: Path, language: str | None = None):
         """Get transcription with segment details."""
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")

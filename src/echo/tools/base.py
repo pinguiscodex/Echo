@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -80,20 +80,20 @@ class ToolResult:
     success: bool
     content: str = ""
     error: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class DirectoryConfinedTools:
     """Main toolkit with comprehensive directory-confined tools."""
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Path | None = None):
         """Initialize toolkit with directory confinement.
 
         Args:
             base_dir: Base directory for confinement (defaults to cwd)
         """
         self.base_dir = (base_dir or Path.cwd()).resolve()
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
         self._validate_base_dir()
         logger.info("AI Toolkit initialized with base dir: %s", self.base_dir)
 
@@ -112,7 +112,7 @@ class DirectoryConfinedTools:
         except (ValueError, OSError):
             return False
 
-    def _sanitize_path(self, path_str: str) -> Optional[Path]:
+    def _sanitize_path(self, path_str: str) -> Path | None:
         """Convert string to safe Path object within base_dir."""
         try:
             path = Path(path_str)
@@ -122,9 +122,8 @@ class DirectoryConfinedTools:
 
             if self._is_allowed_path(resolved):
                 return resolved
-            else:
-                logger.warning("Path escape attempt blocked: %s", path_str)
-                return None
+            logger.warning("Path escape attempt blocked: %s", path_str)
+            return None
         except (ValueError, OSError) as e:
             logger.error("Path sanitization error: %s", e)
             return None
@@ -134,7 +133,7 @@ class DirectoryConfinedTools:
         ext = path.suffix.lower()
         return ext in TEXT_EXTENSIONS
 
-    def _log_tool_execution(self, tool_name: str, args: Dict[str, Any], result: ToolResult):
+    def _log_tool_execution(self, tool_name: str, args: dict[str, Any], result: ToolResult):
         """Log tool execution for history."""
         self.history.append(
             {

@@ -5,7 +5,6 @@ import logging
 import random
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import requests
 
@@ -41,14 +40,13 @@ class WikipediaTools:
                 raise
         return self._wiki
 
-    def _get_cached(self, key: str) -> Optional[str]:
+    def _get_cached(self, key: str) -> str | None:
         """Get cached result if not expired."""
         if key in self._cache:
             cached_time, cached_data = self._cache[key]
             if (datetime.now().timestamp() - cached_time) < self._cache_timeout:
                 return cached_data
-            else:
-                del self._cache[key]
+            del self._cache[key]
         return None
 
     def _set_cached(self, key: str, data: str):
@@ -142,9 +140,9 @@ class WikipediaTools:
             }
 
             if len(page.text) > 5000:
-                result[
-                    "content"
-                ] += f"\n\n... (article truncated, total length: {len(page.text)} chars)"
+                result["content"] += (
+                    f"\n\n... (article truncated, total length: {len(page.text)} chars)"
+                )
 
             content = json.dumps(result, indent=2)
             self._set_cached(cache_key, content)
@@ -240,14 +238,13 @@ class DuckDuckGoTools:
 
         raise last_error
 
-    def _get_cached(self, key: str) -> Optional[str]:
+    def _get_cached(self, key: str) -> str | None:
         """Get cached result if not expired."""
         if key in self._cache:
             cached_time, cached_data = self._cache[key]
             if (datetime.now().timestamp() - cached_time) < self._cache_timeout:
                 return cached_data
-            else:
-                del self._cache[key]
+            del self._cache[key]
         return None
 
     def _set_cached(self, key: str, data: str):
@@ -320,7 +317,7 @@ class DuckDuckGoTools:
         code_query = f"{query} site:github.com OR site:gitlab.com OR site:bitbucket.org OR site:stackoverflow.com"
         return self.web_search(code_query, max_results=max_results)
 
-    def _format_search_results(self, results: List[Dict], query: str) -> Dict:
+    def _format_search_results(self, results: list[dict], query: str) -> dict:
         """Format web search results."""
         formatted = {"query": query, "results": []}
 
@@ -336,7 +333,7 @@ class DuckDuckGoTools:
 
         return formatted
 
-    def _format_news_results(self, results: List[Dict]) -> Dict:
+    def _format_news_results(self, results: list[dict]) -> dict:
         """Format news search results."""
         formatted = {"results": []}
 
@@ -363,7 +360,7 @@ class ResearchOrchestrator:
         self.wiki = WikipediaTools()
         self.ddg = DuckDuckGoTools()
 
-    def smart_research(self, query: str, search_types: List[str] = None) -> ToolResult:
+    def smart_research(self, query: str, search_types: list[str] = None) -> ToolResult:
         """Auto-select best search methods for a query."""
         if search_types is None:
             search_types = ["web", "wiki"]

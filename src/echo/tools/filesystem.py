@@ -7,7 +7,6 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from echo.tools.base import DirectoryConfinedTools, ToolResult
 
@@ -93,7 +92,7 @@ class FileSystemTools:
 
         return "\n".join(lines)
 
-    def read_file(self, path: str, max_lines: Optional[int] = None) -> ToolResult:
+    def read_file(self, path: str, max_lines: int | None = None) -> ToolResult:
         """Read file content (text files only)."""
         path_obj = self.agent._sanitize_path(path)
         if not path_obj:
@@ -108,7 +107,7 @@ class FileSystemTools:
             )
 
         try:
-            with open(path_obj, "r", encoding="utf-8", errors="replace") as f:
+            with open(path_obj, encoding="utf-8", errors="replace") as f:
                 if max_lines:
                     lines = []
                     for i, line in enumerate(f):
@@ -165,7 +164,7 @@ class FileSystemTools:
             return ToolResult(False, error="Cannot edit binary files")
 
         try:
-            with open(path_obj, "r", encoding="utf-8") as f:
+            with open(path_obj, encoding="utf-8") as f:
                 content = f.read()
 
             if old_text not in content:
@@ -214,17 +213,15 @@ class FileSystemTools:
                 return ToolResult(
                     True, content=f"File deleted: {path_obj.relative_to(self.agent.base_dir)}"
                 )
-            elif path_obj.is_dir():
+            if path_obj.is_dir():
                 if recursive:
                     shutil.rmtree(path_obj)
                     return ToolResult(
                         True,
                         content=f"Directory deleted: {path_obj.relative_to(self.agent.base_dir)}",
                     )
-                else:
-                    return ToolResult(False, error="Use recursive=True to delete directories")
-            else:
-                return ToolResult(False, error="Path not found")
+                return ToolResult(False, error="Use recursive=True to delete directories")
+            return ToolResult(False, error="Path not found")
         except Exception as e:
             return ToolResult(False, error=str(e))
 

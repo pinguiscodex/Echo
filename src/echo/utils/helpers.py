@@ -4,10 +4,9 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
-def load_chat_history(filepath: Optional[Path] = None) -> List[Dict]:
+def load_chat_history(filepath: Path | None = None) -> list[dict]:
     """Load chat history from JSON file."""
     if filepath is None:
         filepath = Path("data/chat_history.json")
@@ -16,7 +15,7 @@ def load_chat_history(filepath: Optional[Path] = None) -> List[Dict]:
         return []
 
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             messages = json.load(f)
         logging.info("Loaded %d messages from %s", len(messages), filepath)
         return messages
@@ -25,7 +24,7 @@ def load_chat_history(filepath: Optional[Path] = None) -> List[Dict]:
         return []
 
 
-def save_chat_history(messages: List[Dict], filepath: Optional[Path] = None) -> Path:
+def save_chat_history(messages: list[dict], filepath: Path | None = None) -> Path:
     """Save chat history to JSON file."""
     if filepath is None:
         filepath = Path("data/chat_history.json")
@@ -42,7 +41,7 @@ def save_chat_history(messages: List[Dict], filepath: Optional[Path] = None) -> 
         raise
 
 
-def format_timestamp(timestamp: Optional[str] = None) -> str:
+def format_timestamp(timestamp: str | None = None) -> str:
     """Format a timestamp for display."""
     if timestamp:
         try:
@@ -72,7 +71,7 @@ def cleanup_temp_files(directory: Path = Path("data"), pattern: str = "rec_*.wav
     return removed
 
 
-def ensure_directories() -> List[Path]:
+def ensure_directories() -> list[Path]:
     """Ensure all required directories exist."""
     directories = [
         Path("data"),

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from echo.tools import AIToolkit
 
@@ -12,17 +12,17 @@ logger = logging.getLogger(__name__)
 class AgentOrchestrator:
     """Manages AI agent tool calling workflow."""
 
-    def __init__(self, toolkit: Optional[AIToolkit] = None):
+    def __init__(self, toolkit: AIToolkit | None = None):
         """Initialize agent orchestrator.
 
         Args:
             toolkit: AI Toolkit instance (creates new one if None)
         """
         self.toolkit = toolkit or AIToolkit()
-        self.tool_calls_history: List[Dict[str, Any]] = []
+        self.tool_calls_history: list[dict[str, Any]] = []
         logger.info("Agent Orchestrator initialized")
 
-    def process_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def process_tool_calls(self, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Execute tool calls and format results for AI."""
         results = []
 
@@ -132,7 +132,7 @@ class AgentOrchestrator:
         logger.info("Executed %d tool calls", len(results))
         return results
 
-    def format_tool_results_for_display(self, results: List[Dict[str, Any]]) -> str:
+    def format_tool_results_for_display(self, results: list[dict[str, Any]]) -> str:
         """Format tool results for display to user."""
         if not results:
             return ""

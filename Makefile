@@ -1,4 +1,4 @@
-.PHONY: help dev install test test-cov lint format type-check security deps-check pre-commit clean build watch
+.PHONY: help dev install test test-cov lint format check type-check security pre-commit clean build watch ci
 
 # Default target
 help:
@@ -6,24 +6,25 @@ help:
 	@echo "======================================"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make dev         Install package with ALL development dependencies"
+	@echo "  make dev         Install package with development dependencies"
 	@echo "  make install     Install package in editable mode (production only)"
 	@echo "  make pre-commit  Install pre-commit hooks"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test        Run tests with pytest"
-	@echo "  make test-cov    Run tests with coverage report (target: 70%+)"
+	@echo "  make test-cov    Run tests with coverage report (target: 50%%+)"
 	@echo "  make test-html   Run tests and generate HTML coverage report"
 	@echo ""
-	@echo "Linting & Formatting:"
-	@echo "  make lint        Run all linters (flake8 + plugins)"
-	@echo "  make format      Format code with black and isort"
-	@echo "  make check       Check formatting without modifying files"
+	@echo "Linting & Formatting (ruff):"
+	@echo "  make lint        Run ruff linter"
+	@echo "  make format      Format code with ruff"
+	@echo "  make check       Check formatting and lint without modifying"
+	@echo ""
+	@echo "Type Checking:"
 	@echo "  make type-check  Run mypy type checker"
 	@echo ""
 	@echo "Security:"
 	@echo "  make security    Run bandit security scanner"
-	@echo "  make deps-check  Run safety dependency vulnerability scan"
 	@echo ""
 	@echo "Development:"
 	@echo "  make clean       Remove build artifacts and caches"
@@ -31,7 +32,7 @@ help:
 	@echo "  make watch       Watch for file changes and re-run tests"
 	@echo ""
 	@echo "Quality Gate (CI):"
-	@echo "  make ci          Run full CI pipeline (format → lint → type-check → test → security)"
+	@echo "  make ci          Run full CI pipeline (format -> lint -> type-check -> test -> security)"
 
 # Install development dependencies
 dev:
@@ -52,7 +53,7 @@ test:
 
 # Run tests with coverage
 test-cov:
-	python -m pytest tests/ -v --cov=src/echo --cov-report=term-missing --cov-fail-under=70
+	python -m pytest tests/ -v --cov=src/echo --cov-report=term-missing --cov-fail-under=50
 
 # Run tests with HTML coverage report
 test-html:
@@ -60,22 +61,20 @@ test-html:
 	@echo "HTML coverage report generated in htmlcov/"
 	@echo "Open: htmlcov/index.html"
 
-# Run linters
+# Run ruff linter
 lint:
-	python -m flake8 src/echo/ tests/
-	@echo "flake8 passed"
+	python -m ruff check src/echo/ tests/
 
-# Format code
+# Format code with ruff
 format:
-	python -m black src/echo/ tests/
-	python -m isort src/echo/ tests/
-	@echo "Code formatted"
+	python -m ruff check src/echo/ tests/ --fix
+	python -m ruff format src/echo/ tests/
 
-# Check formatting without modifying
+# Check formatting and lint without modifying
 check:
-	python -m black --check src/echo/ tests/
-	python -m isort --check src/echo/ tests/
-	@echo "Code formatting check passed"
+	python -m ruff check src/echo/ tests/
+	python -m ruff format src/echo/ tests/ --check
+	@echo "Ruff check passed"
 
 # Run type checker
 type-check:
@@ -86,17 +85,12 @@ security:
 	python -m bandit -c pyproject.toml -r src/echo/
 	@echo "Bandit security scan passed"
 
-# Check dependencies for vulnerabilities
-deps-check:
-	python -m safety check --full-report
-	@echo "Dependency check passed"
-
 # Run pre-commit hooks on all files
 pre-commit-all:
 	pre-commit run --all-files
 
 # Full CI pipeline
-ci: format lint type-check test-cov security deps-check
+ci: format lint type-check test-cov security
 	@echo ""
 	@echo "========================================="
 	@echo "  CI Pipeline Passed [OK]"

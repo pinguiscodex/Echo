@@ -3,8 +3,8 @@
 import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 import numpy as np
 import sounddevice as sd
@@ -24,9 +24,9 @@ class AudioRecorder:
         self.is_recording = False
         self.is_listening = True
         self.audio_chunks = []
-        self._recording_thread: Optional[threading.Thread] = None
+        self._recording_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._callback: Optional[Callable] = None
+        self._callback: Callable | None = None
         self._stream = None
 
         # VAD parameters
@@ -146,7 +146,7 @@ class AudioRecorder:
             self._stop_event.clear()
         return result
 
-    def save_recording(self, filepath: Optional[Path] = None) -> Optional[Path]:
+    def save_recording(self, filepath: Path | None = None) -> Path | None:
         """Save recorded audio to file."""
         if not self.audio_chunks:
             logger.warning("No audio chunks to save")

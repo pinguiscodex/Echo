@@ -11,19 +11,19 @@ def __getattr__(name):
         from echo.core.chatbot import EchoChatbot
 
         return EchoChatbot
-    elif name == "ChatResponse":
+    if name == "ChatResponse":
         from echo.core.chatbot import ChatResponse
 
         return ChatResponse
-    elif name == "AgentOrchestrator":
+    if name == "AgentOrchestrator":
         from echo.core.agent import AgentOrchestrator
 
         return AgentOrchestrator
-    elif name == "AIToolkit":
+    if name == "AIToolkit":
         from echo.tools import AIToolkit
 
         return AIToolkit
-    elif name == "EchoConsoleApp":
+    if name == "EchoConsoleApp":
         from echo.cli import EchoConsoleApp
 
         return EchoConsoleApp

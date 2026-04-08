@@ -4,7 +4,7 @@ import logging
 import platform
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from echo.tools.base import DirectoryConfinedTools, ToolResult
 from echo.tools.code import CodeExecutionTools
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class AIToolkit:
     """Complete AI toolkit with all tools accessible."""
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Path | None = None):
         """Initialize toolkit.
 
         Args:
@@ -79,7 +79,7 @@ class AIToolkit:
 
         logger.info("AI Toolkit ready with %d tools", len(self.tool_map))
 
-    def _get_tool_definitions(self) -> List[Dict[str, Any]]:
+    def _get_tool_definitions(self) -> list[dict[str, Any]]:
         """Get JSON schema definitions for all tools."""
         return [
             {
@@ -493,7 +493,7 @@ class AIToolkit:
             logger.error("Tool execution error [%s]: %s", tool_name, e)
             return ToolResult(False, error=str(e))
 
-    def get_tool_usage_history(self) -> List[Dict[str, Any]]:
+    def get_tool_usage_history(self) -> list[dict[str, Any]]:
         """Get history of tool executions."""
         return self.agent.history.copy()
 

@@ -2,8 +2,9 @@
 
 import json
 import logging
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any
 
 import requests
 
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ChatResponse:
     """Container for chat response with optional tool calls."""
 
-    def __init__(self, content: str = "", tool_calls: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, content: str = "", tool_calls: list[dict[str, Any]] | None = None):
         self.content = content
         self.tool_calls = tool_calls or []
 
@@ -29,7 +30,7 @@ class ChatResponse:
 class EchoChatbot:
     """AI chatbot integration using OpenRouter or Mistral API with streaming responses."""
 
-    def __init__(self, system_prompt: Optional[str] = None, toolkit: Optional[Any] = None):
+    def __init__(self, system_prompt: str | None = None, toolkit: Any | None = None):
         """Initialize the chatbot with settings and conversation history.
 
         Args:
@@ -37,7 +38,7 @@ class EchoChatbot:
             toolkit: AIToolkit instance for text-based tool calling (optional)
         """
         self.settings = get_settings()
-        self.messages: List[Dict] = []
+        self.messages: list[dict] = []
         self.toolkit = toolkit
 
         # Determine API provider
@@ -63,15 +64,15 @@ class EchoChatbot:
         if self.toolkit:
             logger.info("Text-based AI Toolkit enabled with %d tools", len(self.toolkit.tool_map))
 
-    def _get_api_key(self) -> Optional[str]:
+    def _get_api_key(self) -> str | None:
         """Get the API key for the selected provider."""
         if self.api_provider == "openrouter":
             return self.settings.openrouter_api_key
-        elif self.api_provider == "mistral":
+        if self.api_provider == "mistral":
             return self.settings.mistral_api_key
         return None
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """Get request headers for the selected provider."""
         api_key = self._get_api_key()
         if self.api_provider == "openrouter":
@@ -81,14 +82,14 @@ class EchoChatbot:
                 "HTTP-Referer": "https://github.com/echo-chatbot",
                 "X-Title": "Echo AI Chatbot",
             }
-        elif self.api_provider == "mistral":
+        if self.api_provider == "mistral":
             return {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
         return {}
 
-    def _build_request_data(self) -> Dict[str, Any]:
+    def _build_request_data(self) -> dict[str, Any]:
         """Build request payload for the selected provider."""
         request_data = {
             "model": self.api_model,
@@ -100,16 +101,13 @@ class EchoChatbot:
 
         # Add tools if toolkit is available
         if self.toolkit:
-            if self.api_provider == "openrouter":
-                request_data["tools"] = self.toolkit.tool_definitions
-                request_data["tool_choice"] = "auto"
-            elif self.api_provider == "mistral":
+            if self.api_provider == "openrouter" or self.api_provider == "mistral":
                 request_data["tools"] = self.toolkit.tool_definitions
                 request_data["tool_choice"] = "auto"
 
         return request_data
 
-    def add_message(self, role: str, content: str, reasoning_details: Optional[str] = None) -> None:
+    def add_message(self, role: str, content: str, reasoning_details: str | None = None) -> None:
         """Add a message to the conversation history.
 
         Args:
@@ -284,7 +282,7 @@ class EchoChatbot:
         self.messages = [self.messages[0]]  # Keep system prompt
         logger.info("Conversation history cleared")
 
-    def get_history(self) -> List[Dict]:
+    def get_history(self) -> list[dict]:
         """Get conversation history.
 
         Returns:
@@ -292,7 +290,7 @@ class EchoChatbot:
         """
         return self.messages.copy()
 
-    def save_history(self, filepath: Optional[Path] = None) -> Path:
+    def save_history(self, filepath: Path | None = None) -> Path:
         """Save conversation history to file.
 
         Args:
@@ -312,7 +310,7 @@ class EchoChatbot:
         logger.info("Chat history saved to: %s", filepath)
         return filepath
 
-    def load_history(self, filepath: Optional[Path] = None) -> None:
+    def load_history(self, filepath: Path | None = None) -> None:
         """Load conversation history from file.
 
         Args:
@@ -326,7 +324,7 @@ class EchoChatbot:
             return
 
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 self.messages = json.load(f)
             logger.info("Chat history loaded from: %s", filepath)
         except Exception as e:

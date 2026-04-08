@@ -120,7 +120,7 @@ class ConversationFactory(factory.Factory):
         )
 
     @classmethod
-    def create(cls, turn_count: int = 1, **kwargs) -> List[Dict[str, Any]]:
+    def create(cls, turn_count: int = 1, **kwargs) -> list[dict[str, Any]]:
         """Create a conversation with N user/assistant turns."""
         messages = [MessageFactory.system()]
         for _ in range(turn_count):
@@ -177,7 +177,7 @@ class ToolResultFactory:
     """Factory for tool result objects (simple wrapper, not factory-boy)."""
 
     @staticmethod
-    def success(content: str = None, **kwargs) -> Dict[str, Any]:
+    def success(content: str = None, **kwargs) -> dict[str, Any]:
         """Create a successful tool result."""
         from echo.tools.base import ToolResult
 
@@ -188,7 +188,7 @@ class ToolResultFactory:
         )
 
     @staticmethod
-    def failure(error: str = None, **kwargs) -> Dict[str, Any]:
+    def failure(error: str = None, **kwargs) -> dict[str, Any]:
         """Create a failed tool result."""
         from echo.tools.base import ToolResult
 

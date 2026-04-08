@@ -53,21 +53,12 @@ dev = [
     "pytest-asyncio>=0.23",
     "factory-boy>=3.3",
     "Faker>=25.0",
-    # Linting
-    "flake8>=7.0",
-    "flake8-bugbear>=24.0",
-    "flake8-comprehensions>=3.14",
-    "flake8-docstrings>=1.7",
-    "pep8-naming>=0.14",
-    "flake8-import-order>=0.18",
-    # Formatting
-    "black>=24.0",
-    "isort>=5.13",
+    # Linting + Formatting (ruff replaces black, isort, flake8 + plugins)
+    "ruff>=0.9.0",
     # Type checking
     "mypy>=1.10",
     # Security
     "bandit>=1.7",
-    "safety>=3.0",
     # Pre-commit
     "pre-commit>=3.0",
     # HTTP
@@ -82,28 +73,61 @@ echo = "echo.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/echo"]
 
-# ─── Black ───────────────────────────────────────────────────────────
-[tool.black]
+# ─── Ruff (replaces black, isort, flake8 + plugins) ────────────────
+[tool.ruff]
 line-length = 100
-target-version = ["py311", "py312", "py313"]
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-    \.git
-  | \.venv
-  | venv
-  | build
-  | dist
-)/
-'''
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["stubs"]
 
-# ─── isort ───────────────────────────────────────────────────────────
-[tool.isort]
-profile = "black"
-line_length = 100
-src_paths = ["src", "tests"]
-known_first_party = ["echo"]
-known_third_party = [
+[tool.ruff.lint]
+select = [
+    # pycodestyle errors
+    "E",
+    # pycodestyle warnings
+    "W",
+    # pyflakes
+    "F",
+    # isort
+    "I",
+    # pep8-naming
+    "N",
+    # pyupgrade
+    "UP",
+    # bugbear
+    "B",
+    # builtins
+    "A",
+    # comprehensions
+    "C4",
+    # simplify
+    "SIM",
+    # return
+    "RET",
+    # unused-arguments
+    "ARG",
+]
+ignore = [
+    "E501",      # line too long (handled by formatter)
+    "D100",      # missing docstring in public module
+    "D104",      # missing docstring in public package
+    "D107",      # missing docstring in __init__
+    "D203",      # conflicts with D211
+    "D213",      # multi-line docstring summary
+    "D401",      # imperative mood
+    "SIM102",    # nested if statements (sometimes clearer)
+    "SIM105",    # contextlib.suppress (try/except is more explicit)
+    "RET505",    # unnecessary elif after return (sometimes clearer)
+    "ARG002",    # unused method args (required by callback signatures)
+    "ARG003",    # unused class method args (factory-boy pattern)
+    "B007",      # unused loop var (acceptable in os.walk)
+    "RET504",    # unnecessary assignment before return (clearer intent)
+    "UP035",     # typing.Dict -> dict (breaks factory-boy compatibility)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["echo"]
+known-third-party = [
     "pydantic",
     "pydantic_settings",
     "dotenv",
@@ -117,15 +141,37 @@ known_third_party = [
     "ddgs",
     "wikipediaapi",
     "pythonclimenu",
+    "pynput",
+    "keyboard",
+    "factory",
+    "faker",
 ]
-sections = [
-    "FUTURE",
-    "STDLIB",
-    "THIRDPARTY",
-    "FIRSTPARTY",
-    "LOCALFOLDER",
-]
-skip_gitignore = true
+
+[tool.ruff.lint.per-file-ignores]
+"src/echo/__init__.py" = ["F401"]
+"src/echo/core/__init__.py" = ["F401"]
+"src/echo/tools/__init__.py" = ["F401"]
+"src/echo/utils/__init__.py" = ["F401"]
+"src/echo/services/__init__.py" = ["F401"]
+"tests/*" = ["D", "S101", "F401", "F841", "ARG001", "ARG002"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 80
+
+# ─── Black (kept for compatibility, ruff format preferred) ─────────
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312", "py313"]
+
+# ─── isort (kept for compatibility, ruff isort preferred) ──────────
+[tool.isort]
+profile = "black"
+line_length = 100
 
 # ─── pytest ──────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
@@ -217,26 +263,3 @@ recursive = true
 exclude_dirs = ["tests", "venv", ".venv"]
 skips = ["B101", "B603", "B607"]  # assert_used, subprocess_without_shell, subprocess_using_shell
 reports = true
-
-# ─── flake8 ──────────────────────────────────────────────────────────
-[tool.flake8]
-max-line-length = 100
-max-doc-length = 120
-extend-ignore = [
-    "E203",  # Whitespace before ':' (conflicts with black)
-    "W503",  # Line break before binary operator
-    "D100",  # Missing docstring in public module
-    "D104",  # Missing docstring in public package
-    "D203",  # 1 blank line required before class docstring (conflicts with D211)
-    "D213",  # Multi-line docstring summary should start at second line
-    "I100",  # Import order (handled by isort)
-    "I201",  # Import order
-]
-per-file-ignores = [
-    "tests/*:D100,D101,D102,D103,D104,S101",
-    "src/echo/__init__.py:F401",
-    "src/echo/core/__init__.py:F401",
-    "src/echo/tools/__init__.py:F401",
-    "src/echo/utils/__init__.py:F401",
-    "src/echo/services/__init__.py:F401",
-]

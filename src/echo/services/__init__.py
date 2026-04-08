@@ -1,5 +1,6 @@
-"""Echo services - persistence and telemetry."""
+"""Echo services -- persistence and session management."""
 
 from echo.services.history import ChatHistoryService
+from echo.services.session import ChatSessionManager
 
-__all__ = ["ChatHistoryService"]
+__all__ = ["ChatHistoryService", "ChatSessionManager"]

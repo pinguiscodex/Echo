@@ -45,7 +45,7 @@ data/*.wav
 data/*.mp3
 data/rec_*.wav
 data/config.json
-data/chat_history.json
+data/chat_sessions/*.json
 logs/*.log
 
 # OS files

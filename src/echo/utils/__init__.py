@@ -13,11 +13,11 @@ def __getattr__(name):
         from echo.utils.logging import setup_logging
 
         return setup_logging
-    elif name == "ensure_directories":
+    if name == "ensure_directories":
         from echo.utils.helpers import ensure_directories
 
         return ensure_directories
-    elif name == "cleanup_temp_files":
+    if name == "cleanup_temp_files":
         from echo.utils.helpers import cleanup_temp_files
 
         return cleanup_temp_files

@@ -5,6 +5,7 @@ Pure terminal chatbot with no TUI dependencies.
 Tools use TEXT-BASED calling convention compatible with GPT-OSS-120B.
 """
 
+import logging
 import os
 import sys
 import tempfile
@@ -14,7 +15,6 @@ import time
 # Suppress warnings
 import warnings
 from pathlib import Path
-from typing import Optional
 
 warnings.filterwarnings("ignore")
 
@@ -31,9 +31,10 @@ try:
     from echo.core.recorder import AudioRecorder
     from echo.core.transcriber import WhisperTranscriber
     from echo.core.tts import TTSEngine
+    from echo.services.session import ChatSessionManager
     from echo.tools import AIToolkit
     from echo.utils.helpers import cleanup_temp_files, ensure_directories
-    from echo.utils.logging import setup_logging
+    from echo.utils.logging import create_session_log, setup_logging
 
     def make_selection(options, label="Select"):
         """Wrapper around python-cli-menu to match make_selection API."""
@@ -53,17 +54,19 @@ class EchoConsoleApp:
         self.running = False
         self.recording = False
         self.speaking = False
-        self._recording_thread: Optional[threading.Thread] = None
+        self._recording_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._audio_path: Optional[Path] = None
+        self._audio_path: Path | None = None
         self._voice_processing = False  # Blocks prompt while transcribing/AI responds
 
-        self.chatbot: Optional[EchoChatbot] = None
-        self.recorder: Optional[AudioRecorder] = None
-        self.transcriber: Optional[WhisperTranscriber] = None
-        self.tts: Optional[TTSEngine] = None
-        self.toolkit: Optional[AIToolkit] = None
-        self.agent_orchestrator: Optional[AgentOrchestrator] = None
+        self.chatbot: EchoChatbot | None = None
+        self.recorder: AudioRecorder | None = None
+        self.transcriber: WhisperTranscriber | None = None
+        self.tts: TTSEngine | None = None
+        self.toolkit: AIToolkit | None = None
+        self.agent_orchestrator: AgentOrchestrator | None = None
+        self.session_manager: ChatSessionManager | None = None
+        self.session_id: str | None = None
 
     def _log(self, message: str):
         """Log message to console."""
@@ -254,17 +257,12 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
         self.transcriber = WhisperTranscriber()
         self.tts = TTSEngine()
 
-        # Load chat history if exists
-        history_path = Path("data/chat_history.json")
-        if history_path.exists() and self.chatbot:
-            try:
-                self.chatbot.load_history(history_path)
-                history = self.chatbot.get_history()
-                msg_count = len([m for m in history if m["role"] in ("user", "assistant")])
-                if msg_count > 0:
-                    self._log(f"[Loaded {msg_count} previous messages]")
-            except Exception:
-                pass
+        # Initialize session manager and create/load current session
+        self.session_manager = ChatSessionManager()
+        self.session_id = self.session_manager.create_session(
+            system_prompt=system_prompt
+        ).session_id
+        self._log(f"[New session started: {self.session_id}]")
 
     def _start_caps_lock_monitor(self):
         """Start monitoring Caps Lock as a TOGGLE for voice recording.
@@ -423,6 +421,9 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
 
     def _handle_chat(self, user_text: str, max_retries: int = 2):
         """Handle chat request with streaming and tool execution."""
+        # Track user message in session
+        if self.session_manager:
+            self.session_manager.add_message("user", user_text)
         self._log("[AI thinking...]")
 
         try:
@@ -455,13 +456,12 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
                     self._log("[AI returned empty response, retrying...]")
                     self.chatbot.messages.pop()  # Remove empty assistant message
                     self._handle_chat(
-                        f"(Please respond to my previous message. You returned an empty response.)",
+                        "(Please respond to my previous message. You returned an empty response.)",
                         max_retries - 1,
                     )
                     return
-                else:
-                    self._log("[AI returned empty response after retries]")
-                    return
+                self._log("[AI returned empty response after retries]")
+                return
 
             # Handle native OpenRouter tool_calls
             if (
@@ -507,6 +507,10 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
                         print(chunk, end="", flush=True)
                     print()  # Newline
                     full_response = follow_up
+
+            # Track assistant response in session
+            if self.session_manager and full_response.strip():
+                self.session_manager.add_message("assistant", full_response)
 
             # TTS if enabled
             if self.settings.output_mode in ("speech", "both") and full_response.strip():
@@ -563,7 +567,7 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
                     if result.success:
                         content = result.content[:500] if result.content else "Success"
                         if len(result.content) > 500:
-                            content += f"... (truncated)"
+                            content += "... (truncated)"
                         results.append(f"[OK] {tool_name}: {content}")
                     else:
                         results.append(f"[FAIL] {tool_name}: {result.error}")
@@ -590,26 +594,28 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
         if cmd in ("/quit", "/exit"):
             self._log("Exiting Echo...")
             return True
-        elif cmd == "/clear":
+        if cmd == "/clear":
             if self.chatbot:
                 self.chatbot.clear_history()
-                self._log("[Chat cleared]")
+            if self.session_manager:
+                system_msg = [
+                    m for m in self.session_manager.get_messages() if m.get("role") == "system"
+                ]
+                self.session_manager.set_messages(system_msg)
+            self._log("[Chat cleared]")
         elif cmd == "/help":
             self._show_help()
         elif cmd == "/save":
-            if self.chatbot:
+            if self.session_manager:
                 try:
-                    self.chatbot.save_history()
-                    self._log("[Chat saved]")
+                    self.session_manager.save_current_session()
+                    self._log(f"[Session saved: {self.session_id}]")
                 except Exception as e:
                     self._log(f"[Save failed: {e}]")
-        elif cmd == "/load":
-            if self.chatbot:
-                try:
-                    self.chatbot.load_history()
-                    self._log("[Chat loaded]")
-                except Exception as e:
-                    self._log(f"[Load failed: {e}]")
+        elif cmd == "/sessions":
+            self._show_sessions()
+        elif cmd == "/resume":
+            self._resume_session()
         elif cmd == "/tools":
             self._show_tools_status()
         elif cmd == "/settings":
@@ -625,10 +631,11 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
 
 Commands:
   /quit, /exit  - Exit the application
-  /clear        - Clear chat history
+  /clear        - Clear current session chat
   /help         - Show this help
-  /save         - Save chat history to disk
-  /load         - Load chat history from disk
+  /save         - Save current session to disk
+  /sessions     - List all past chat sessions
+  /resume       - Resume a past chat session (opens menu)
   /tools        - Show AI agent tools status
   /settings     - Open interactive settings menu
 
@@ -645,6 +652,69 @@ Configuration:
   Edit .env to change model, voice, temperature, tools, etc.
 """
         print(help_text)
+
+    def _show_sessions(self):
+        """List all saved chat sessions."""
+        if not self.session_manager:
+            self._log("[No session manager available]")
+            return
+
+        sessions = self.session_manager.list_sessions()
+        if not sessions:
+            self._log("[No saved sessions found]")
+            return
+
+        self._log(f"Saved sessions ({len(sessions)}):")
+        self._log("-" * 60)
+        for i, session in enumerate(sessions, 1):
+            marker = " <-- current" if session.session_id == self.session_id else ""
+            self._log(f"  {i}. {session.timestamp}  ({session.message_count} messages){marker}")
+        self._log("-" * 60)
+        self._log("Use /resume to load a past session")
+
+    def _resume_session(self):
+        """Resume a past chat session via menu."""
+        if not self.session_manager:
+            self._log("[No session manager available]")
+            return
+
+        sessions = self.session_manager.list_sessions()
+        # Filter out current session
+        available = [s for s in sessions if s.session_id != self.session_id]
+        if not available:
+            self._log("[No other sessions to resume]")
+            return
+
+        options = []
+        for session in available:
+            label = f"{session.timestamp} ({session.message_count} messages)"
+            options.append(label)
+        options.append("Cancel")
+
+        try:
+            selected = make_selection(options, "Select session to resume")
+        except (KeyboardInterrupt, EOFError):
+            return
+
+        if selected == "Cancel":
+            return
+
+        # Find the matching session
+        idx = options.index(selected)
+        target_session = available[idx]
+
+        # Load the session into both session_manager and chatbot
+        loaded = self.session_manager.load_session(target_session.session_id)
+        if loaded is None:
+            self._log("[Failed to load session]")
+            return
+
+        if self.chatbot:
+            self.chatbot.messages = loaded.messages.copy()
+        self.session_id = loaded.session_id
+        self._log(f"[Resumed session: {self.session_id}]")
+        msg_count = loaded.message_count
+        self._log(f"[{msg_count} previous messages loaded]")
 
     def _show_tools_status(self):
         """Show AI agent tools status."""
@@ -733,7 +803,7 @@ Configuration:
 
             if selected == "Back":
                 return
-            elif selected == "API Provider":
+            if selected == "API Provider":
                 all_options = ["openrouter", "mistral"]
                 current = self.settings.api_provider
                 choice_options = [current] + [o for o in all_options if o != current]
@@ -903,11 +973,15 @@ Configuration:
         self.running = False
         if self.recording:
             self._stop_event.set()
-        if self.chatbot:
+
+        # Auto-save session and settings on exit
+        if self.session_manager:
             try:
-                self.chatbot.save_history()
-            except Exception:
-                pass
+                self.session_manager.save_current_session()
+            except Exception as e:
+                logging.getLogger(__name__).error("Failed to save session: %s", e)
+        ConfigStore.save_config(self.settings)
+
         for comp in [self.recorder, self.transcriber, self.tts]:
             if comp:
                 comp.cleanup()
@@ -916,7 +990,9 @@ Configuration:
 
     def run(self):
         """Main application loop - pure terminal I/O."""
-        setup_logging(log_level="INFO", console_output=False)
+        # Create per-session log file
+        session_log = create_session_log()
+        setup_logging(log_level="DEBUG", log_file=session_log, console_output=False)
         ensure_directories()
         cleanup_temp_files()
 
@@ -948,11 +1024,13 @@ Configuration:
         print("\n" + "=" * 60)
         print("  Echo AI Chatbot - Pure Terminal Mode")
         print("=" * 60)
+        if self.session_id:
+            print(f"  Session: {self.session_id}")
         if self.settings.api_provider == "openrouter":
-            print(f"  Provider: OpenRouter")
+            print("  Provider: OpenRouter")
             print(f"  Model: {self.settings.openrouter_model}")
         elif self.settings.api_provider == "mistral":
-            print(f"  Provider: Mistral")
+            print("  Provider: Mistral")
             print(f"  Model: {self.settings.mistral_model}")
         print(f"  Input: {self.settings.input_mode} | Output: {self.settings.output_mode}")
         print(f"  Temperature: {self.settings.temperature}")

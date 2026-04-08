@@ -3,8 +3,8 @@
 import asyncio
 import logging
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator, Optional
 
 import sounddevice as sd
 import soundfile as sf
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class TTSEngine:
     """Text-to-speech engine using edge-tts for high-quality, free voices."""
 
-    def __init__(self, voice: Optional[str] = None):
+    def __init__(self, voice: str | None = None):
         """Initialize the TTS engine.
 
         Args:

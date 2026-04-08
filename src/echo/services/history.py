@@ -3,7 +3,6 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +12,7 @@ class ChatHistoryService:
 
     DEFAULT_PATH = Path("data/chat_history.json")
 
-    def __init__(self, filepath: Optional[Path] = None):
+    def __init__(self, filepath: Path | None = None):
         """Initialize the history service.
 
         Args:
@@ -21,7 +20,7 @@ class ChatHistoryService:
         """
         self.filepath = filepath or self.DEFAULT_PATH
 
-    def save(self, messages: List[Dict]) -> Path:
+    def save(self, messages: list[dict]) -> Path:
         """Save conversation history to file.
 
         Args:
@@ -38,7 +37,7 @@ class ChatHistoryService:
         logger.info("Chat history saved to: %s", self.filepath)
         return self.filepath
 
-    def load(self) -> List[Dict]:
+    def load(self) -> list[dict]:
         """Load conversation history from file.
 
         Returns:
@@ -49,7 +48,7 @@ class ChatHistoryService:
             return []
 
         try:
-            with open(self.filepath, "r", encoding="utf-8") as f:
+            with open(self.filepath, encoding="utf-8") as f:
                 messages = json.load(f)
             logger.info("Chat history loaded from: %s", self.filepath)
             return messages
@@ -67,6 +66,6 @@ class ChatHistoryService:
             self.filepath.unlink()
             logger.info("Chat history file deleted: %s", self.filepath)
 
-    def get_message_count(self, messages: List[Dict]) -> int:
+    def get_message_count(self, messages: list[dict]) -> int:
         """Count user and assistant messages (excluding system)."""
         return len([m for m in messages if m.get("role") in ("user", "assistant")])
