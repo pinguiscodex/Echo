@@ -179,7 +179,7 @@ class AgentOrchestrator:
 
         summary_lines = ["Recent tool usage:"]
         for call in self.tool_calls_history[-5:]:
-            status = "✓" if call["success"] else "✗"
+            status = "[OK]" if call["success"] else "[FAIL]"
             summary_lines.append(
                 f"  {status} {call['tool']}: {call.get('content_preview', '')[:100]}"
             )

@@ -150,7 +150,12 @@ class Settings(BaseSettings):
     )
     max_tokens: int = Field(default=1024, ge=64, le=4096, description="Maximum tokens per response")
     system_prompt: str = Field(
-        default="You are Echo, a helpful and friendly AI assistant. Provide clear, concise answers.",
+        default=(
+            "You are Echo, a highly capable, friendly, and adaptable AI assistant. "
+            "Your primary goal is to provide clear, accurate, and actionable help "
+            "across any task -- whether answering questions, solving problems, "
+            "writing code, conducting research, or having natural conversation."
+        ),
         description="System prompt for the AI",
     )
 

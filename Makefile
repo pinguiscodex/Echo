@@ -99,7 +99,7 @@ pre-commit-all:
 ci: format lint type-check test-cov security deps-check
 	@echo ""
 	@echo "========================================="
-	@echo "  CI Pipeline Passed ✓"
+	@echo "  CI Pipeline Passed [OK]"
 	@echo "========================================="
 
 # Clean build artifacts

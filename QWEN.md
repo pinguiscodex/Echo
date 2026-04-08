@@ -5,7 +5,7 @@
 **Echo** is a production-ready, voice-enabled CLI chatbot built in Python with a `src/` layout. It provides speech-to-text and text-to-speech capabilities alongside traditional text chat, powered by the OpenRouter or Mistral API for AI responses.
 
 ### Core Capabilities
-- **Voice Input** — Hold Caps Lock to record, auto-transcribed using faster-whisper (CTranslate2 backend)
+- **Voice Input** — Press Caps Lock to toggle recording, auto-transcribed using faster-whisper (CTranslate2 backend)
 - **Voice Output** — AI responses spoken aloud using edge-tts (free Microsoft Neural voices)
 - **Text Input/Output** — Traditional text chat as fallback or primary mode
 - **Streaming Responses** — Real-time token streaming from OpenRouter/Mistral API
@@ -185,7 +185,7 @@ All settings are configurable via `.env`. Key settings:
 | `SAMPLE_RATE` | `16000` | Audio sample rate in Hz |
 | `ENABLE_TOOLS` | `true` | Enable AI agent tool calling |
 
-**Voice Recording**: Hold **Caps Lock** to record. Release to stop and transcribe.
+**Voice Recording**: Press **Caps Lock** to start recording. Press again to stop and transcribe.
 
 ## Development Conventions
 
@@ -282,13 +282,13 @@ make watch
 ## Pre-commit Hooks
 
 The following hooks run automatically on each commit:
-1. **pre-commit-hooks** — Trailing whitespace, EOF fixer, YAML/TOML/JSON validation, large files, merge conflicts, debug statements, private keys
-2. **bandit** — Security linting
-3. **black** — Code formatting
-4. **isort** — Import sorting
-5. **flake8** — Linting with plugins
-6. **mypy** — Type checking (excluding tests)
-7. **safety** — Dependency vulnerability scanning
+1. **pre-commit-hooks** -- Trailing whitespace, EOF fixer, YAML/TOML/JSON validation, large files, merge conflicts, debug statements, private keys
+2. **bandit** -- Security linting
+3. **black** -- Code formatting
+4. **isort** -- Import sorting
+5. **flake8** -- Linting with plugins
+
+Note: mypy and safety are available via make type-check and make deps-check but excluded from pre-commit due to missing type stubs and build tool incompatibilities.
 
 ## Important Notes
 

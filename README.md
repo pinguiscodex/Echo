@@ -1,4 +1,4 @@
-# 🤖 Echo AI Chatbot
+# Echo AI Chatbot
 
 > Voice-enabled CLI chatbot with AI agent tools, powered by OpenRouter or Mistral.
 
@@ -12,13 +12,13 @@
 
 | Capability | Details |
 |------------|---------|
-| 🎤 **Voice Input** | Hold Caps Lock to record, transcribed via faster-whisper |
-| 🔊 **Voice Output** | AI responses spoken aloud via edge-tts |
-| 💬 **Text Chat** | Traditional input/output as fallback |
-| ⚡ **Streaming** | Real-time token streaming from AI |
-| 🛠️ **Agent Tools** | File ops, code execution, web research (Wikipedia, DuckDuckGo) |
-| ⚙️ **Configurable** | Models, voices, temperature, input/output modes |
-| 💾 **Persistent** | Chat history auto-saved to disk |
+| **Voice Input** | Press Caps Lock to toggle recording, transcribed via faster-whisper |
+| **Voice Output** | AI responses spoken aloud via edge-tts |
+| **Text Chat** | Traditional input/output as fallback |
+| **Streaming** | Real-time token streaming from AI |
+| **Agent Tools** | File ops, code execution, web research (Wikipedia, DuckDuckGo) |
+| **Configurable** | Models, voices, temperature, input/output modes |
+| **Persistent** | Chat history auto-saved to disk |
 
 ## Quick Start
 
@@ -32,18 +32,18 @@ pip install -e .
 
 # 3. Configure
 cp .env.example .env
-# Edit .env → add your OPENROUTER_API_KEY
+# Edit .env -> add your OPENROUTER_API_KEY
 
 # 4. Run
 echo
 ```
 
-> **No admin permissions required.** Keyboard input uses Python stdlib only.
+> No admin permissions required. Keyboard input uses Python stdlib only.
 
 ## How It Works
 
 ```
-You speak → Caps Lock records → Whisper transcribes → AI thinks → TTS responds
+You speak -> Caps Lock toggles recording -> Whisper transcribes -> AI thinks -> TTS responds
 ```
 
 | Layer | Technology |
@@ -64,7 +64,7 @@ You speak → Caps Lock records → Whisper transcribes → AI thinks → TTS re
 | `/settings` | Interactive settings menu |
 | `/help` | Show all commands |
 
-**Voice:** Hold **Caps Lock** to record → release to transcribe.
+**Voice:** Press **Caps Lock** once to start recording, press again to stop and transcribe.
 
 ## Configuration
 
@@ -104,7 +104,7 @@ make format       # black + isort
 make type-check   # mypy
 make security     # bandit
 make deps-check   # safety (vulnerability scan)
-make ci           # full pipeline: format → lint → type-check → test → security
+make ci           # full pipeline: format -> lint -> type-check -> test -> security
 make watch        # auto-test on file changes
 make clean        # remove build artifacts
 ```
@@ -118,7 +118,7 @@ make clean        # remove build artifacts
 | **Formatting** | black, isort |
 | **Types** | mypy (pragmatic mode) |
 | **Security** | bandit, safety |
-| **Hooks** | pre-commit (7 hooks) |
+| **Hooks** | pre-commit (5 hooks) |
 
 ## Project Structure
 
@@ -172,11 +172,11 @@ Echo includes 23 built-in tools for the AI to use:
 | No audio input | Install `portaudio19-dev` (Linux) or `brew install portaudio` (macOS) |
 | API_KEY not configured | Add your key to `.env` |
 | Request timeout | Check internet, verify API key, try a different model |
-| Whisper slow to load | Use `base` or `small` — models are cached after first download |
+| Whisper slow to load | Use `base` or `small` -- models are cached after first download |
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT -- see [LICENSE](LICENSE).
 
 ## Contributing
 
@@ -188,4 +188,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-Built with ❤️ using Python, [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and [edge-tts](https://github.com/rany2/edge-tts)
+Built with Python, [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and [edge-tts](https://github.com/rany2/edge-tts)
