@@ -56,7 +56,7 @@ class EchoConsoleApp:
         self._recording_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._audio_path: Optional[Path] = None
-        self._caps_lock_was_on = False
+        self._voice_processing = False  # Blocks prompt while transcribing/AI responds
 
         self.chatbot: Optional[EchoChatbot] = None
         self.recorder: Optional[AudioRecorder] = None
@@ -68,6 +68,19 @@ class EchoConsoleApp:
     def _log(self, message: str):
         """Log message to console."""
         print(f"\n{message}", flush=True)
+
+    def _log_override(self, message: str):
+        """Log message, clearing the current input line first.
+
+        Used when recording starts/stops while user is at the prompt.
+        """
+        # Clear current line and move cursor to beginning
+        print("\r\033[K", end="", flush=True)
+        print(f"[{message}]", flush=True)
+
+    def _reprompt(self):
+        """Re-show the input prompt after recording finishes."""
+        print("You: ", end="", flush=True)
 
     def _init_components(self):
         """Initialize all core components."""
@@ -198,95 +211,80 @@ IMPORTANT:
             except Exception:
                 pass
 
-    def _check_caps_lock(self) -> bool:
-        """Check if Caps Lock is currently ON (cross-platform)."""
-        try:
-            if sys.platform == "win32":
-                import ctypes
-
-                return (ctypes.windll.user32.GetKeyState(0x14) & 1) != 0
-            elif sys.platform == "darwin":
-                import ctypes
-                import ctypes.util
-
-                core_graphics_path = ctypes.util.find_library("CoreGraphics")
-                if core_graphics_path:
-                    core_graphics = ctypes.CDLL(core_graphics_path)
-                    core_graphics.CGEventSourceKeyState.restype = ctypes.c_bool
-                    core_graphics.CGEventSourceKeyState.argtypes = [
-                        ctypes.c_uint32,
-                        ctypes.c_uint32,
-                    ]
-                    kCGEventSourceStateHIDSystemState = 0
-                    kVK_CapsLock = 0x39
-                    return bool(
-                        core_graphics.CGEventSourceKeyState(
-                            kCGEventSourceStateHIDSystemState, kVK_CapsLock
-                        )
-                    )
-            elif sys.platform.startswith("linux"):
-                try:
-                    from Xlib import display as xdisplay
-
-                    d = xdisplay.Display()
-                    kc = d.get_keyboard_control()
-                    d.close()
-                    return bool(kc.led_mask & 1)
-                except ImportError:
-                    import os
-
-                    caps_led_paths = [
-                        "/sys/class/leds/input0::capslock/brightness",
-                        "/sys/class/leds/input1::capslock/brightness",
-                        "/sys/class/leds/::capslock/brightness",
-                    ]
-                    for path in caps_led_paths:
-                        if os.path.exists(path):
-                            try:
-                                with open(path, "r") as f:
-                                    return int(f.read().strip()) != 0
-                            except Exception:
-                                continue
-        except Exception:
-            pass
-        return False
-
     def _start_caps_lock_monitor(self):
-        """Start monitoring Caps Lock for voice recording."""
+        """Start monitoring Caps Lock as a TOGGLE for voice recording.
+
+        Toggle behavior:
+          - Press Caps Lock once  → start recording (LED turns ON)
+          - Press Caps Lock again → stop recording & transcribe (LED turns OFF)
+        """
         if self.settings.input_mode not in ("speech", "both"):
             return
 
-        def monitor_loop():
-            while self.running:
-                try:
-                    caps_is_on = self._check_caps_lock()
+        # ── Try pynput first (works on Linux X11 without root) ──────────
+        try:
+            from pynput import keyboard as pynput_kb
 
-                    if caps_is_on and not self._caps_lock_was_on:
-                        # Caps Lock just turned on - start recording
-                        if not self.recording and not self.speaking:
-                            self._start_recording()
-                    elif not caps_is_on and self._caps_lock_was_on:
-                        # Caps Lock just turned off - stop recording
-                        if self.recording:
-                            self._stop_recording()
+            def on_caps_release(key, _listener):
+                """Toggle recording on each Caps Lock release."""
+                if key != pynput_kb.Key.caps_lock:
+                    return
+                if self.speaking:
+                    return  # Don't toggle during speech playback
+                if not self.running:
+                    return
 
-                    self._caps_lock_was_on = caps_is_on
-                except Exception:
-                    pass
+                if not self.recording:
+                    # Toggle ON → start recording
+                    self._start_recording()
+                else:
+                    # Toggle OFF → stop & transcribe
+                    self._stop_recording()
 
-                time.sleep(0.1)
+            listener = pynput_kb.Listener(on_release=lambda key: on_caps_release(key, listener))
+            listener.daemon = True
+            listener.start()
+            return
+        except Exception as e:
+            self._log(f"[pynput failed: {e}]")
 
-        thread = threading.Thread(target=monitor_loop, daemon=True)
-        thread.start()
+        # ── Fallback: keyboard library ──────────────────────────────────
+        try:
+            import keyboard
+
+            def on_event(event):
+                if event.name != "caps lock":
+                    return
+                if event.event_type != "down":
+                    return  # Only toggle on key-down to avoid double-fire
+                if self.speaking or not self.running:
+                    return
+
+                if not self.recording:
+                    self._start_recording()
+                else:
+                    self._stop_recording()
+
+            keyboard.hook(on_event)
+            return
+        except (PermissionError, OSError) as e:
+            self._log(f"[keyboard failed: {e}]")
+        except ImportError:
+            pass
+
+        # ── All backends failed ─────────────────────────────────────────
+        self._log("[Voice input disabled — no keyboard backend available]")
+        if sys.platform.startswith("linux"):
+            self._log("[Install pynput: pip install pynput]")
 
     def _start_recording(self):
-        """Start recording on Caps Lock press."""
+        """Start recording — triggered by Caps Lock toggle ON."""
         if self.recording or not self.recorder:
             return
         self.recording = True
         self._stop_event.clear()
         self._audio_path = Path(tempfile.mktemp(suffix=".wav"))
-        self._log("[Recording... (release Caps Lock to stop)]")
+        self._log_override("Recording... press CAPS LOCK again to stop")
 
         import numpy as np
         import sounddevice as sd
@@ -318,10 +316,10 @@ IMPORTANT:
         self._recording_thread.start()
 
     def _stop_recording(self):
-        """Stop recording on Caps Lock release."""
+        """Stop recording — triggered by Caps Lock toggle OFF."""
         if not self.recording:
             return
-        self._log("[Processing voice input...]")
+        self._log_override("Processing voice input...")
         self._stop_event.set()
         if self._recording_thread and self._recording_thread.is_alive():
             self._recording_thread.join(timeout=5.0)
@@ -334,27 +332,33 @@ IMPORTANT:
         self.recording = False
 
         if audio_path and audio_path.exists():
-            self._process_voice_input(audio_path)
-        else:
-            self._log("[No audio recorded]")
-
-    def _process_voice_input(self, audio_path: Path):
-        """Process recorded audio."""
-        if not all([self.transcriber, self.chatbot, self.tts]):
-            return
-
-        try:
-            text = self.transcriber.transcribe(audio_path)
-            if not text or not text.strip():
-                self._log("[No speech detected]")
+            # Transcribe first, then block prompt only if there's speech
+            try:
+                text = self.transcriber.transcribe(audio_path) if self.transcriber else ""
+            except Exception as e:
+                self._log_override(f"Transcription failed: {e}")
+                self._reprompt()
+                if audio_path.exists():
+                    audio_path.unlink(missing_ok=True)
                 return
-            self._log(f"[You: {text}]")
-            self._handle_chat(text)
-        except Exception as e:
-            self._log(f"[Transcription failed: {e}]")
-        finally:
+
             if audio_path.exists():
                 audio_path.unlink(missing_ok=True)
+
+            if not text or not text.strip():
+                self._log_override("No speech detected")
+                self._reprompt()
+                return
+
+            # We have speech — block prompt until AI responds
+            self._voice_processing = True
+            self._log(f"You: {text}")
+            self._handle_chat(text)
+            self._voice_processing = False
+            self._reprompt()
+        else:
+            self._log_override("No audio recorded")
+            self._reprompt()
 
     def _process_text_input(self, text: str):
         """Process text input."""
@@ -574,8 +578,7 @@ Commands:
   /settings     - Open interactive settings menu
 
 Voice Controls:
-  Hold CAPS LOCK to record voice input
-  Release CAPS LOCK to stop and transcribe
+  Press CAPS LOCK to record, press again to stop and transcribe
 
 AI Agent Tools:
   The AI can perform file operations, run code, and execute commands.
@@ -905,7 +908,7 @@ Configuration:
         print("=" * 60)
 
         if self.settings.input_mode in ("speech", "both"):
-            print("\nVoice: Hold CAPS LOCK to record, release to transcribe")
+            print("\nVoice: Press CAPS LOCK to record, press again to stop")
             print("Text:  Type your message and press ENTER")
         else:
             print("\nType your message and press ENTER")
@@ -919,12 +922,16 @@ Configuration:
 
         try:
             while self.running:
-                # Don't prompt if currently speaking or recording
+                # Don't prompt if currently speaking, recording, or processing voice
                 if self.speaking:
                     time.sleep(0.1)
                     continue
 
                 if self.recording:
+                    time.sleep(0.1)
+                    continue
+
+                if self._voice_processing:
                     time.sleep(0.1)
                     continue
 

@@ -41,6 +41,8 @@ dependencies = [
     "ddgs>=9.0.0",
     "python-cli-menu>=1.5.0",
     "beautifulsoup4>=4.12.0",
+    "keyboard>=0.13.5",
+    "pynput>=1.7.6",
 ]
 
 [project.optional-dependencies]
