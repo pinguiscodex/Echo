@@ -54,6 +54,13 @@ def setup_logging(
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("ddgs").setLevel(logging.WARNING)
+    logging.getLogger("rustls").setLevel(logging.WARNING)
+    logging.getLogger("reqwest").setLevel(logging.WARNING)
+    logging.getLogger("hyper_util").setLevel(logging.WARNING)
+    logging.getLogger("h2").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     logging.info("Logging initialized at %s level, file: %s", log_level, log_file)
 

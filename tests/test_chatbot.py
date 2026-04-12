@@ -108,3 +108,32 @@ class TestEchoChatbot:
         chatbot.clear_history()
         chatbot.load_history(history_path)
         assert len(chatbot.messages) == 2
+
+    @patch("echo.core.chatbot.get_settings")
+    def test_tool_call_message_format(self, mock_get_settings, mock_settings):
+        """Test that assistant messages with tool_calls have correct format."""
+        from echo.core.chatbot import EchoChatbot
+
+        mock_get_settings.return_value = mock_settings
+        chatbot = EchoChatbot()
+
+        # Simulate adding an assistant message with tool calls (as chat_continue would)
+        tool_calls = [
+            {
+                "id": "call_abc123",
+                "type": "function",
+                "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+            }
+        ]
+        assistant_message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": tool_calls,
+        }
+        chatbot.messages.append(assistant_message)
+
+        last_msg = chatbot.messages[-1]
+        assert last_msg["role"] == "assistant"
+        assert last_msg["content"] is None
+        assert "tool_calls" in last_msg
+        assert last_msg["tool_calls"][0]["type"] == "function"

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(docs.mistral.ai)"
+    ]
+  },
+  "$version": 3
+}

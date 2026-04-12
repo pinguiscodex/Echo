@@ -37,8 +37,17 @@ class TTSEngine:
         await communicate.save(str(output_file))
         logger.debug("Speech generated: %s", output_file)
 
-    def speak(self, text: str, block: bool = True) -> None:
-        """Speak text aloud using edge-tts."""
+    def speak(self, text: str, block: bool = True, status_callback=None) -> None:
+        """Speak text aloud using edge-tts.
+
+        Generates audio file and plays it back. Calls status_callback with
+        status messages for each phase.
+
+        Args:
+            text: Text to speak
+            block: Whether to block until playback completes
+            status_callback: Optional callable(status_msg) for console output
+        """
         if not text or not text.strip():
             logger.debug("Empty text provided, skipping TTS")
             return
@@ -56,22 +65,36 @@ class TTSEngine:
 
         try:
             temp_file = Path(tempfile.mktemp(suffix=".mp3"))
+
+            # Phase 1: Generate audio
+            logger.info("Generating audio...")
+            if status_callback:
+                status_callback("Generating audio...")
             asyncio.run(self._generate_speech(text, temp_file))
 
-            if temp_file.exists():
-                audio_data, sample_rate = sf.read(str(temp_file))
-                sd.play(audio_data, sample_rate)
-
-                if block:
-                    sd.wait()
-                    logger.info("Speech playback complete")
-
-                temp_file.unlink(missing_ok=True)
-            else:
+            if not temp_file.exists():
                 logger.warning("Audio file not generated")
+                if status_callback:
+                    status_callback("Failed to generate audio")
+                return
+
+            # Phase 2: Play audio
+            logger.info("Speaking...")
+            if status_callback:
+                status_callback("Speaking...")
+            audio_data, sample_rate = sf.read(str(temp_file))
+            sd.play(audio_data, sample_rate)
+
+            if block:
+                sd.wait()
+                logger.info("Speech playback complete")
+
+            temp_file.unlink(missing_ok=True)
 
         except Exception as e:
             logger.error("TTS failed: %s", e, exc_info=True)
+            if status_callback:
+                status_callback(f"TTS error: {e}")
 
     def speak_stream(self, text_generator: Generator[str, None, None]) -> str:
         """Speak text as it streams in. Note: collects full text first."""

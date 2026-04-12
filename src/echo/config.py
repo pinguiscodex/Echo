@@ -19,36 +19,63 @@ CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "config.json"
 
 
 class ConfigStore:
-    """Save and load Echo settings from a JSON config file."""
+    """Save and load Echo settings from a JSON config file.
 
-    # All keys that are persisted to config.json
+    Supports model-specific settings for temperature, max_tokens, and enable_tools.
+    These are stored per model under the 'model_settings' key.
+    """
+
+    # All keys that are persisted to config.json (global settings)
     KEYS = [
         "api_provider",
         "openrouter_model",
         "mistral_model",
         "whisper_model",
         "tts_voice",
-        "temperature",
-        "max_tokens",
         "system_prompt",
         "input_mode",
         "output_mode",
         "sample_rate",
-        "enable_tools",
         "python_execution_timeout",
         "command_execution_timeout",
     ]
 
+    # Model-specific settings keys
+    MODEL_SPECIFIC_KEYS = ["temperature", "max_tokens", "enable_tools"]
+
+    @classmethod
+    def _get_model_key(cls, settings: "Settings") -> str:
+        """Get the current model identifier for settings lookup."""
+        if settings.api_provider == "openrouter":
+            return settings.openrouter_model
+        elif settings.api_provider == "mistral":
+            return settings.mistral_model
+        return "unknown"
+
     @classmethod
     def save_config(cls, settings: "Settings", filepath: Path | None = None) -> Path:
-        """Serialise all user-editable settings to JSON."""
+        """Serialise all user-editable settings to JSON, including model-specific settings."""
         path = filepath or CONFIG_PATH
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {}
+        # Save global settings
         for key in cls.KEYS:
             data[key] = getattr(settings, key)
+        # Save model-specific settings under current model
+        model_key = cls._get_model_key(settings)
+        if "model_settings" not in data:
+            # Load existing model settings if file exists
+            existing = cls.load_config(filepath)
+            if existing and "model_settings" in existing:
+                data["model_settings"] = existing["model_settings"]
+            else:
+                data["model_settings"] = {}
+        # Save current model's specific settings
+        data["model_settings"][model_key] = {
+            key: getattr(settings, key) for key in cls.MODEL_SPECIFIC_KEYS
+        }
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, indent=2, ensure_ascii=False)
         return path
 
     @classmethod
@@ -62,13 +89,50 @@ class ConfigStore:
 
     @classmethod
     def apply_config(cls, settings: "Settings", data: dict[str, Any]) -> None:
-        """Apply loaded config values to the live Settings instance."""
+        """Apply loaded config values to the live Settings instance.
+
+        Also applies model-specific settings if available.
+        """
+        # Apply global settings first (except model fields which are handled separately)
+        model_fields = {"openrouter_model", "mistral_model"}
         for key in cls.KEYS:
+            if key in model_fields:
+                continue  # Skip model fields - they're used to determine which model-specific settings to load
             if key in data:
                 try:
                     object.__setattr__(settings, key, data[key])
                 except Exception:
                     pass  # skip invalid values silently
+        # Apply model-specific settings for current model
+        model_key = cls._get_model_key(settings)
+        model_settings = data.get("model_settings", {})
+        if model_key in model_settings:
+            model_data = model_settings[model_key]
+            for key in cls.MODEL_SPECIFIC_KEYS:
+                if key in model_data:
+                    try:
+                        object.__setattr__(settings, key, model_data[key])
+                    except Exception:
+                        pass  # skip invalid values silently
+
+    @classmethod
+    def apply_model_settings(cls, settings: "Settings", data: dict[str, Any]) -> bool:
+        """Apply model-specific settings for the current model.
+
+        Returns True if model-specific settings were found and applied.
+        """
+        model_key = cls._get_model_key(settings)
+        model_settings = data.get("model_settings", {})
+        if model_key in model_settings:
+            model_data = model_settings[model_key]
+            for key in cls.MODEL_SPECIFIC_KEYS:
+                if key in model_data:
+                    try:
+                        object.__setattr__(settings, key, model_data[key])
+                    except Exception:
+                        pass
+            return True
+        return False
 
     @classmethod
     def sync_to_env(cls, settings: "Settings") -> None:
@@ -268,7 +332,10 @@ def get_settings() -> Settings:
 
 
 def reload_settings() -> Settings:
-    """Reload settings: apply config.json → sync os.environ → reload from .env/envvars."""
+    """Reload settings: apply config.json → sync os.environ → reload from .env/envvars.
+
+    Also applies model-specific settings for the current model.
+    """
     get_settings.cache_clear()
     s = Settings()
     # If config.json exists, apply it on top of defaults/.env
@@ -277,3 +344,21 @@ def reload_settings() -> Settings:
         ConfigStore.apply_config(s, data)
         ConfigStore.sync_to_env(s)
     return s
+
+
+def switch_model_settings(settings: "Settings") -> bool:
+    """Switch to model-specific settings for the given settings' current model.
+
+    Loads config.json and applies the model-specific settings (temperature,
+    max_tokens, enable_tools) for the model specified in settings.
+
+    Args:
+        settings: Current settings instance (will be modified in place)
+
+    Returns:
+        True if model-specific settings were found and applied, False otherwise
+    """
+    data = ConfigStore.load_config()
+    if data:
+        return ConfigStore.apply_model_settings(settings, data)
+    return False

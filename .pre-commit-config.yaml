@@ -25,6 +25,13 @@ repos:
         args: ["-c", "pyproject.toml", "-r", "src/echo"]
         additional_dependencies: ["bandit[toml]"]
 
+  # ─── Dependency Audit ────────────────────────────────────────────
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.7.3
+    hooks:
+      - id: pip-audit
+        args: ["--requirement", "pyproject.toml"]
+
   # ─── Ruff (lint + format, replaces black + isort + flake8) ───────
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.9

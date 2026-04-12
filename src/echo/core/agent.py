@@ -38,6 +38,7 @@ class AgentOrchestrator:
                     results.append(
                         {
                             "role": "tool",
+                            "name": "unknown",
                             "tool_call_id": tool_id,
                             "content": "Error: Tool call missing tool name",
                         }
@@ -52,6 +53,7 @@ class AgentOrchestrator:
                     results.append(
                         {
                             "role": "tool",
+                            "name": tool_name,
                             "tool_call_id": tool_id,
                             "content": f"Error: Invalid JSON arguments - {e}",
                         }
@@ -63,6 +65,7 @@ class AgentOrchestrator:
                     results.append(
                         {
                             "role": "tool",
+                            "name": tool_name,
                             "tool_call_id": tool_id,
                             "content": f"Error: Tool '{tool_name}' requires arguments but none were provided",
                         }
@@ -81,6 +84,7 @@ class AgentOrchestrator:
                     results.append(
                         {
                             "role": "tool",
+                            "name": tool_name,
                             "tool_call_id": tool_id,
                             "content": f"Error: Tool '{tool_name}' has empty values for: {', '.join(missing_required)}",
                         }
@@ -109,11 +113,19 @@ class AgentOrchestrator:
                             + f"\n... (truncated, total length: {len(result.content)} chars)"
                         )
 
-                    results.append({"role": "tool", "tool_call_id": tool_id, "content": content})
+                    results.append(
+                        {
+                            "role": "tool",
+                            "name": tool_name,
+                            "tool_call_id": tool_id,
+                            "content": content,
+                        }
+                    )
                 else:
                     results.append(
                         {
                             "role": "tool",
+                            "name": tool_name,
                             "tool_call_id": tool_id,
                             "content": f"Error: {result.error}",
                         }
@@ -124,6 +136,7 @@ class AgentOrchestrator:
                 results.append(
                     {
                         "role": "tool",
+                        "name": tool_name if "tool_name" in locals() else "unknown",
                         "tool_call_id": tool_call.get("id", "unknown"),
                         "content": f"Execution error: {str(e)}",
                     }

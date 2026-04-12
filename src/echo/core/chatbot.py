@@ -120,6 +120,163 @@ class EchoChatbot:
             message["reasoning_details"] = reasoning_details
         self.messages.append(message)
 
+    def chat_continue(self) -> Generator[str, None, ChatResponse]:
+        """Continue the conversation without adding a user message.
+
+        Used after tool execution to get the AI's response to tool results.
+        The tool result messages should already be in self.messages.
+
+        Yields:
+            Response tokens as they arrive
+
+        Returns:
+            ChatResponse object with content and any tool_calls
+        """
+        api_key = self._get_api_key()
+        if (
+            not api_key
+            or api_key == "your_openrouter_api_key_here"
+            or api_key == "your_mistral_api_key_here"
+        ):
+            error_msg = f"Error: {self.api_provider.upper()}_API_KEY not configured. Please set it in .env file."
+            logger.error(error_msg)
+            yield error_msg
+            return ChatResponse(content=error_msg)
+
+        # NOTE: Do NOT add a user message - tool results are already in self.messages
+
+        full_response = ""
+        reasoning_details = None
+        tool_calls = []
+
+        try:
+            # Build request payload using helper (includes tools if toolkit is available)
+            request_data = self._build_request_data()
+
+            response = requests.post(
+                self.api_url,
+                headers=self._get_headers(),
+                json=request_data,
+                timeout=120,  # Longer timeout for tool follow-up
+                stream=True,
+            )
+
+            response.raise_for_status()
+
+            # Process streaming response
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode("utf-8")
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            logger.debug(
+                                "API response chunk: %s", json.dumps(chunk, indent=2)[:500]
+                            )
+                            if "choices" in chunk and len(chunk["choices"]) > 0:
+                                delta = chunk["choices"][0].get("delta", {})
+
+                                # Handle text content
+                                content = delta.get("content", "")
+                                if content:
+                                    # Mistral may return content as a list of content blocks
+                                    if isinstance(content, list):
+                                        content = "".join(
+                                            block.get("text", "")
+                                            if isinstance(block, dict)
+                                            else str(block)
+                                            for block in content
+                                        )
+                                    if content:
+                                        full_response += content
+                                        yield content
+
+                                # Handle tool calls
+                                if "tool_calls" in delta:
+                                    for tc in delta["tool_calls"]:
+                                        # Find or create tool call entry
+                                        index = tc.get("index", 0)
+                                        while len(tool_calls) <= index:
+                                            tool_calls.append(
+                                                {
+                                                    "id": "",
+                                                    "type": "function",
+                                                    "function": {"name": "", "arguments": ""},
+                                                }
+                                            )
+
+                                        if "id" in tc and tc["id"]:
+                                            tool_calls[index]["id"] = tc["id"]
+                                        if "type" in tc and tc["type"]:
+                                            tool_calls[index]["type"] = tc["type"]
+                                        if "function" in tc:
+                                            if "name" in tc["function"] and tc["function"]["name"]:
+                                                tool_calls[index]["function"]["name"] = tc[
+                                                    "function"
+                                                ]["name"]
+                                            if (
+                                                "arguments" in tc["function"]
+                                                and tc["function"]["arguments"]
+                                            ):
+                                                tool_calls[index]["function"]["arguments"] += tc[
+                                                    "function"
+                                                ]["arguments"]
+
+                        except json.JSONDecodeError as e:
+                            logger.debug("JSON decode error: %s", e)
+                            continue
+
+            # Log if response was empty
+            if not full_response and not tool_calls:
+                logger.warning(
+                    "Empty response from API (provider: %s, model: %s). "
+                    "Request had %d messages, response stream completed without content or tool_calls.",
+                    self.api_provider,
+                    self.api_model,
+                    len(self.messages),
+                )
+
+            # Add assistant response to history
+            assistant_message = {
+                "role": "assistant",
+                "content": full_response if full_response else None,
+            }
+            if tool_calls:
+                for tc in tool_calls:
+                    if "type" not in tc:
+                        tc["type"] = "function"
+                assistant_message["tool_calls"] = tool_calls
+            self.messages.append(assistant_message)
+
+            logger.info(
+                "Continue response received: %d characters, %d tool_calls",
+                len(full_response),
+                len(tool_calls),
+            )
+
+            return ChatResponse(content=full_response, tool_calls=tool_calls)
+
+        except requests.exceptions.Timeout:
+            error_msg = "Error: Request timed out. Please try again."
+            logger.error("Request timeout: %s", error_msg)
+            yield error_msg
+            return ChatResponse(content=error_msg)
+
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Error: API request failed - {str(e)}"
+            logger.error("Request error: %s", e)
+            yield error_msg
+            return ChatResponse(content=error_msg)
+
+        except Exception as e:
+            error_msg = f"Error: Unexpected error - {str(e)}"
+            logger.error("Unexpected error: %s", e, exc_info=True)
+            yield error_msg
+            return ChatResponse(content=error_msg)
+
     def chat(self, user_input: str) -> Generator[str, None, ChatResponse]:
         """Send a message to the API and stream the response.
 
@@ -180,8 +337,17 @@ class EchoChatbot:
                                 # Handle text content
                                 content = delta.get("content", "")
                                 if content:
-                                    full_response += content
-                                    yield content
+                                    # Mistral may return content as a list of content blocks
+                                    if isinstance(content, list):
+                                        content = "".join(
+                                            block.get("text", "")
+                                            if isinstance(block, dict)
+                                            else str(block)
+                                            for block in content
+                                        )
+                                    if content:
+                                        full_response += content
+                                        yield content
 
                                 # Handle tool calls
                                 if "tool_calls" in delta:
@@ -215,14 +381,30 @@ class EchoChatbot:
                             logger.debug("JSON decode error: %s", e)
                             continue
 
-            # Add assistant response to history
-            self.add_message("assistant", full_response, reasoning_details)
-
-            # If there are tool_calls, add them to the message history as well
-            if tool_calls:
-                self.messages.append(
-                    {"role": "assistant", "content": None, "tool_calls": tool_calls}
+            # Log if response was empty
+            if not full_response and not tool_calls:
+                logger.warning(
+                    "Empty response from API (provider: %s, model: %s). "
+                    "Request had %d messages, response stream completed without content or tool_calls.",
+                    self.api_provider,
+                    self.api_model,
+                    len(self.messages),
                 )
+
+            # Add assistant response to history
+            # If there are tool_calls, include them in the same message
+            # Mistral requires content: null when tool_calls are present
+            assistant_message = {
+                "role": "assistant",
+                "content": full_response if full_response else None,
+            }
+            if tool_calls:
+                # Ensure each tool call has the "type" field (required by Mistral)
+                for tc in tool_calls:
+                    if "type" not in tc:
+                        tc["type"] = "function"
+                assistant_message["tool_calls"] = tool_calls
+            self.messages.append(assistant_message)
 
             logger.info(
                 "Response received: %d characters, %d tool_calls",

@@ -24,8 +24,11 @@ os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "0"
 
 try:
     from pythonclimenu import menu as cli_menu
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
 
-    from echo.config import ConfigStore, get_settings, reload_settings
+    from echo.config import ConfigStore, get_settings, reload_settings, switch_model_settings
     from echo.core.agent import AgentOrchestrator
     from echo.core.chatbot import ChatResponse, EchoChatbot
     from echo.core.recorder import AudioRecorder
@@ -33,6 +36,28 @@ try:
     from echo.core.tts import TTSEngine
     from echo.services.session import ChatSessionManager
     from echo.tools import AIToolkit
+    from echo.utils.console import (
+        console,
+        print_ai_thinking,
+        print_api_key_not_configured,
+        print_banner,
+        print_chat_cleared,
+        print_error,
+        print_goodbye,
+        print_help,
+        print_no_speech,
+        print_processing_voice,
+        print_recording,
+        print_save_failed,
+        print_session_saved,
+        print_status,
+        print_tool_execution_start,
+        print_tool_result,
+        print_tts_generating,
+        print_tts_speaking,
+        print_unknown_command,
+        print_user_message,
+    )
     from echo.utils.helpers import cleanup_temp_files, ensure_directories
     from echo.utils.logging import create_session_log, setup_logging
 
@@ -70,7 +95,8 @@ class EchoConsoleApp:
 
     def _log(self, message: str):
         """Log message to console."""
-        print(f"\n{message}", flush=True)
+        console.print()
+        console.print(message)
 
     def _log_override(self, message: str):
         """Log message, clearing the current input line first.
@@ -78,12 +104,12 @@ class EchoConsoleApp:
         Used when recording starts/stops while user is at the prompt.
         """
         # Clear current line and move cursor to beginning
-        print("\r\033[K", end="", flush=True)
-        print(f"[{message}]", flush=True)
+        console.print("\r\033[K", end="")
+        console.print(f"[{message}]")
 
     def _reprompt(self):
         """Re-show the input prompt after recording finishes."""
-        print("You: ", end="", flush=True)
+        console.print(Text("You: ", style="bold green"), end="")
 
     def _init_components(self):
         """Initialize all core components."""
@@ -92,7 +118,7 @@ class EchoConsoleApp:
         if config_data:
             ConfigStore.apply_config(self.settings, config_data)
             ConfigStore.sync_to_env(self.settings)
-            self._log("[Loaded config from data/config.json]")
+            logging.getLogger(__name__).info("Config loaded from data/config.json")
 
         # Initialize toolkit if enabled
         toolkit = None
@@ -100,7 +126,9 @@ class EchoConsoleApp:
             toolkit = AIToolkit()
             self.toolkit = toolkit
             self.agent_orchestrator = AgentOrchestrator(toolkit=toolkit)
-            self._log(f"[AI Toolkit enabled with {len(toolkit.tool_map)} tools]")
+            logging.getLogger(__name__).info(
+                "AI Toolkit enabled with %d tools", len(toolkit.tool_map)
+            )
 
         # Build enhanced system prompt with tool instructions
         import platform
@@ -262,7 +290,7 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
         self.session_id = self.session_manager.create_session(
             system_prompt=system_prompt
         ).session_id
-        self._log(f"[New session started: {self.session_id}]")
+        logging.getLogger(__name__).info("New session started: %s", self.session_id)
 
     def _start_caps_lock_monitor(self):
         """Start monitoring Caps Lock as a TOGGLE for voice recording.
@@ -337,7 +365,7 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
         self.recording = True
         self._stop_event.clear()
         self._audio_path = Path(tempfile.mktemp(suffix=".wav"))
-        self._log_override("Recording... press CAPS LOCK again to stop")
+        print_recording()
 
         import numpy as np
         import sounddevice as sd
@@ -370,12 +398,16 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
 
     def _stop_recording(self):
         """Stop recording — triggered by Caps Lock toggle OFF."""
+        logger = logging.getLogger(__name__)
         if not self.recording:
+            logger.debug("_stop_recording called but not recording")
             return
-        self._log_override("Processing voice input...")
+        logger.info("Stopping recording...")
+        print_processing_voice()
         self._stop_event.set()
         if self._recording_thread and self._recording_thread.is_alive():
             self._recording_thread.join(timeout=5.0)
+            logger.debug("Recording thread joined")
 
         audio_path = self._audio_path
         self._audio_path = None
@@ -383,12 +415,16 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
 
         # Clear recording state
         self.recording = False
+        logger.info("Recording stopped, audio path: %s", audio_path)
 
         if audio_path and audio_path.exists():
             # Transcribe first, then block prompt only if there's speech
             try:
+                logger.info("Transcribing audio: %s", audio_path)
                 text = self.transcriber.transcribe(audio_path) if self.transcriber else ""
+                logger.info("Transcription result: %s", repr(text))
             except Exception as e:
+                logger.error("Transcription failed: %s", e, exc_info=True)
                 self._log_override(f"Transcription failed: {e}")
                 self._reprompt()
                 if audio_path.exists():
@@ -397,116 +433,163 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
 
             if audio_path.exists():
                 audio_path.unlink(missing_ok=True)
+                logger.debug("Temporary audio file deleted")
 
             if not text or not text.strip():
-                self._log_override("No speech detected")
+                logger.info("No speech detected in audio")
+                print_no_speech()
                 self._reprompt()
                 return
 
             # We have speech — block prompt until AI responds
+            logger.info("Processing voice input: %s", text[:100])
             self._voice_processing = True
-            self._log(f"You: {text}")
+            print_user_message(text)
             self._handle_chat(text)
             self._voice_processing = False
+            logger.info("Voice processing complete")
             self._reprompt()
         else:
+            logger.warning("No audio recorded or file does not exist")
             self._log_override("No audio recorded")
             self._reprompt()
 
     def _process_text_input(self, text: str):
         """Process text input."""
+        logger = logging.getLogger(__name__)
+        logger.info("Processing text input: %s", text[:100])
         if not all([self.chatbot, self.tts]):
+            logger.error("Chatbot or TTS not initialized")
             return
         self._handle_chat(text)
 
     def _handle_chat(self, user_text: str, max_retries: int = 2):
-        """Handle chat request with streaming and tool execution."""
+        """Handle chat request with streaming and multi-step tool execution."""
+        logger = logging.getLogger(__name__)
+        logger.info("_handle_chat called with: %s", user_text[:100])
+
         # Track user message in session
         if self.session_manager:
             self.session_manager.add_message("user", user_text)
-        self._log("[AI thinking...]")
+
+        max_tool_iterations = 10  # Prevent infinite loops
+        tool_iteration = 0
+        full_response = ""
 
         try:
-            full_response = ""
-            chat_response = None
-
-            # Stream the response
+            # First call: send user message
+            console.print()
+            console.print(Text("AI thinking...", style="dim yellow"))
+            logger.info("Sending request to AI...")
             for chunk in self.chatbot.chat(user_text):
                 full_response += chunk
-                # Print streaming output
-                print(chunk, end="", flush=True)
+                console.print(chunk, end="")
+            console.print()  # Newline after response
+            logger.info("AI response received: %d chars", len(full_response))
 
-            print()  # Newline after response
+            # Multi-step tool execution loop
+            while tool_iteration < max_tool_iterations:
+                # Extract tool_calls from the LAST assistant message (the most recent one).
+                # When Mistral returns tool_calls with no text content, the message has
+                # content: None but full_response is "". We must check the last message only.
+                tool_calls = []
+                if self.chatbot.messages and self.chatbot.messages[-1].get("role") == "assistant":
+                    last_msg = self.chatbot.messages[-1]
+                    tool_calls = last_msg.get("tool_calls", [])
 
-            # Extract ChatResponse from the last assistant message
-            if self.chatbot.messages and self.chatbot.messages[-1].get("role") == "assistant":
-                last_msg = self.chatbot.messages[-1]
-                if "tool_calls" in last_msg:
-                    chat_response = ChatResponse(
-                        content=full_response, tool_calls=last_msg["tool_calls"]
-                    )
-                else:
-                    chat_response = ChatResponse(content=full_response)
-            else:
-                chat_response = ChatResponse(content=full_response)
+                chat_response = ChatResponse(content=full_response, tool_calls=tool_calls)
 
-            # Handle empty responses with retry
-            if not full_response.strip():
-                if max_retries > 0:
-                    self._log("[AI returned empty response, retrying...]")
-                    self.chatbot.messages.pop()  # Remove empty assistant message
-                    self._handle_chat(
-                        "(Please respond to my previous message. You returned an empty response.)",
-                        max_retries - 1,
-                    )
-                    return
-                self._log("[AI returned empty response after retries]")
-                return
+                # Handle empty responses with retry (but NOT if there are tool_calls)
+                if not full_response.strip():
+                    if chat_response.has_tool_calls():
+                        # Has tool calls but no text - proceed with tool execution
+                        pass
+                    elif max_retries > 0:
+                        console.print()
+                        console.print(
+                            Text("[AI returned empty response, retrying...]", style="dim yellow")
+                        )
+                        self.chatbot.messages.pop()  # Remove empty assistant message
+                        self._handle_chat(
+                            "(Please respond to my previous message. You returned an empty response.)",
+                            max_retries - 1,
+                        )
+                        return
+                    else:
+                        console.print()
+                        console.print(
+                            Text("[AI returned empty response after retries]", style="dim yellow")
+                        )
+                        return
 
-            # Handle native OpenRouter tool_calls
-            if (
-                self.agent_orchestrator
-                and self.settings.enable_tools
-                and chat_response.has_tool_calls()
-            ):
-                self._log("\n[Executing tools...]")
-                tool_results = self.agent_orchestrator.process_tool_calls(chat_response.tool_calls)
-
-                # Display tool results
-                for result in tool_results:
-                    content = result.get("content", "")
-                    if len(content) > 300:
-                        content = content[:300] + "..."
-                    status = "[OK]" if not content.startswith("Error:") else "[FAIL]"
-                    self._log(f"{status} Tool result: {content}")
-
-                # Send tool results back to AI for follow-up
-                self._log("[AI processing tool result...]")
-                follow_up = ""
-                tool_result_text = "\n".join([r.get("content", "") for r in tool_results])
-                for chunk in self.chatbot.chat(
-                    f"Tool execution result:\n{tool_result_text}\n\nPlease summarize what was done and continue helping."
+                # Check for native tool_calls
+                if (
+                    self.agent_orchestrator
+                    and self.settings.enable_tools
+                    and chat_response.has_tool_calls()
                 ):
-                    follow_up += chunk
-                    print(chunk, end="", flush=True)
-                print()  # Newline
-                full_response = follow_up
+                    tool_iteration += 1
+                    print_tool_execution_start(tool_iteration)
+                    tool_results = self.agent_orchestrator.process_tool_calls(
+                        chat_response.tool_calls
+                    )
 
-            # Also check for text-based tool calls (fallback)
-            elif self.toolkit and self.settings.enable_tools and "[TOOL:" in full_response:
-                tool_output = self._execute_text_tools(full_response)
-                if tool_output:
-                    self._log(f"\n{tool_output}")
-                    # Send tool result back to AI for follow-up
-                    self._log("[AI processing tool result...]")
-                    follow_up = ""
-                    for chunk in self.chatbot.chat(
-                        f"Tool execution result:\n{tool_output}\n\nPlease summarize what was done and continue helping."
-                    ):
-                        follow_up += chunk
-                        print(chunk, end="", flush=True)
-                    print()  # Newline
-                    full_response = follow_up
+                    # Display tool results
+                    for result in tool_results:
+                        content = result.get("content", "")
+                        success = not content.startswith("Error:")
+                        tool_name = ""
+                        for tc in chat_response.tool_calls:
+                            fn = tc.get("function", {})
+                            if fn.get("name"):
+                                tool_name = fn["name"]
+                                break
+                        print_tool_result(tool_name or "unknown", success, content)
+
+                    # Add tool results as proper tool-role messages
+                    for tool_result in tool_results:
+                        self.chatbot.messages.append(tool_result)
+
+                    # Get AI follow-up using chat_continue() (no user message added)
+                    print_ai_thinking()
+                    full_response = ""
+                    for chunk in self.chatbot.chat_continue():
+                        full_response += chunk
+                        console.print(chunk, end="")
+                    console.print()
+                    continue  # Loop back to check for more tool_calls
+
+                # Check for text-based tool calls (fallback)
+                if self.toolkit and self.settings.enable_tools and "[TOOL:" in full_response:
+                    tool_iteration += 1
+                    tool_output = self._execute_text_tools(full_response)
+                    if tool_output:
+                        console.print()
+                        console.print(
+                            Panel(
+                                tool_output[:500],
+                                border_style="blue",
+                                title="Tool Output",
+                                padding=(1, 2),
+                            )
+                        )
+                        # Send tool result back to AI for follow-up
+                        print_ai_thinking()
+                        full_response = ""
+                        for chunk in self.chatbot.chat(
+                            f"Tool execution result:\n{tool_output}\n\nPlease summarize what was done and continue helping."
+                        ):
+                            full_response += chunk
+                            console.print(chunk, end="")
+                        console.print()
+                        continue  # Loop back to check for more tool_calls
+
+                # No more tool calls - exit loop
+                break
+
+            if tool_iteration >= max_tool_iterations:
+                console.print()
+                console.print(Text("[Warning: Maximum tool iterations reached]", style="yellow"))
 
             # Track assistant response in session
             if self.session_manager and full_response.strip():
@@ -514,15 +597,31 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
 
             # TTS if enabled
             if self.settings.output_mode in ("speech", "both") and full_response.strip():
-                self.speaking = True
-                self._log("[Speaking...]")
-                tts_thread = threading.Thread(
-                    target=self._run_tts, args=(full_response,), daemon=True
+                # Skip TTS for error messages
+                is_error = full_response.strip().startswith(("Error:", "API request failed"))
+                if is_error:
+                    logger.info("TTS skipped (error response): %s", full_response[:100])
+                else:
+                    self.speaking = True
+                    logger.info("Starting TTS for response: %d chars", len(full_response))
+                    tts_thread = threading.Thread(
+                        target=self._run_tts, args=(full_response,), daemon=True
+                    )
+                    tts_thread.start()
+                    tts_thread.join()
+                    logger.info("TTS thread joined")
+            else:
+                logger.info(
+                    "TTS skipped: output_mode=%s, response_empty=%s",
+                    self.settings.output_mode,
+                    not full_response.strip(),
                 )
-                tts_thread.start()
-                tts_thread.join()
         except Exception as e:
-            self._log(f"[Chat failed: {e}]")
+            logger.error("_handle_chat failed: %s", e, exc_info=True)
+            console.print()
+            console.print(
+                Panel(f"Chat failed: {e}", style="red", border_style="red", title="Error")
+            )
 
     def _execute_text_tools(self, response: str) -> str:
         """Parse and execute text-based tool calls from AI response.
@@ -579,20 +678,51 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
         return "\n".join(results) if results else ""
 
     def _run_tts(self, text: str):
-        """Run TTS playback."""
+        """Run TTS playback with Rich status messages."""
+        import sys
+
+        last_status = [None]
+
+        def show_status(msg):
+            """Show status message, clearing previous one."""
+            if last_status[0]:
+                # Move cursor up one line and clear it using raw stdout
+                sys.stdout.write("\033[1A\r\033[K")
+                sys.stdout.flush()
+            if "Generating" in msg:
+                console.print(Text("Generating audio...", style="dim magenta"))
+            elif "Speaking" in msg:
+                console.print(Text("Speaking...", style="bold magenta"))
+            else:
+                console.print(Text(msg, style="dim magenta"))
+            last_status[0] = msg
+
+        logger = logging.getLogger(__name__)
+        logger.info("TTS playback started for text: %s", text[:100])
         try:
-            self.tts.speak(text)
+            self.tts.speak(text, status_callback=show_status)
+            logger.info("TTS playback completed successfully")
         except Exception as e:
-            self._log(f"[TTS playback error: {e}]")
+            logger.error("TTS playback error: %s", e, exc_info=True)
+            console.print()
+            console.print(
+                Panel(f"TTS playback error: {e}", style="red", border_style="red", title="Error")
+            )
         finally:
+            # Clear the final status line
+            if last_status[0]:
+                sys.stdout.write("\033[1A\r\033[K")
+                sys.stdout.flush()
             # Always reset speaking state when TTS completes
             self.speaking = False
+            logger.info("TTS speaking flag reset")
 
     def _handle_command(self, cmd: str) -> bool:
         """Handle slash commands. Returns True to exit."""
         cmd = cmd.strip().lower()
         if cmd in ("/quit", "/exit"):
-            self._log("Exiting Echo...")
+            console.print()
+            console.print(Text("Exiting Echo...", style="bold cyan"))
             return True
         if cmd == "/clear":
             if self.chatbot:
@@ -602,16 +732,16 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
                     m for m in self.session_manager.get_messages() if m.get("role") == "system"
                 ]
                 self.session_manager.set_messages(system_msg)
-            self._log("[Chat cleared]")
+            print_chat_cleared()
         elif cmd == "/help":
-            self._show_help()
+            print_help()
         elif cmd == "/save":
             if self.session_manager:
                 try:
                     self.session_manager.save_current_session()
-                    self._log(f"[Session saved: {self.session_id}]")
+                    print_session_saved(self.session_id)
                 except Exception as e:
-                    self._log(f"[Save failed: {e}]")
+                    print_save_failed(str(e))
         elif cmd == "/sessions":
             self._show_sessions()
         elif cmd == "/resume":
@@ -621,7 +751,7 @@ Remember: Your voice is your interface. Every word you write will be spoken alou
         elif cmd == "/settings":
             self._show_settings()
         else:
-            self._log(f"[Unknown command: {cmd}]")
+            print_unknown_command(cmd)
         return False
 
     def _show_help(self):
@@ -656,33 +786,40 @@ Configuration:
     def _show_sessions(self):
         """List all saved chat sessions."""
         if not self.session_manager:
-            self._log("[No session manager available]")
+            console.print(Text("[No session manager available]", style="dim"))
             return
 
         sessions = self.session_manager.list_sessions()
         if not sessions:
-            self._log("[No saved sessions found]")
+            console.print(Text("[No saved sessions found]", style="dim"))
             return
 
-        self._log(f"Saved sessions ({len(sessions)}):")
-        self._log("-" * 60)
+        console.print()
+        table = Table(title="Saved Sessions", border_style="blue", header_style="bold cyan")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Timestamp", style="cyan")
+        table.add_column("Messages", style="dim", width=10)
+        table.add_column("Status", style="green")
+
         for i, session in enumerate(sessions, 1):
-            marker = " <-- current" if session.session_id == self.session_id else ""
-            self._log(f"  {i}. {session.timestamp}  ({session.message_count} messages){marker}")
-        self._log("-" * 60)
-        self._log("Use /resume to load a past session")
+            marker = "[green]← Current[/]" if session.session_id == self.session_id else ""
+            table.add_row(str(i), session.timestamp, str(session.message_count), marker)
+
+        console.print(table)
+        console.print(Text("Use /resume to load a past session", style="dim"))
+        console.print()
 
     def _resume_session(self):
         """Resume a past chat session via menu."""
         if not self.session_manager:
-            self._log("[No session manager available]")
+            console.print(Text("[No session manager available]", style="dim"))
             return
 
         sessions = self.session_manager.list_sessions()
         # Filter out current session
         available = [s for s in sessions if s.session_id != self.session_id]
         if not available:
-            self._log("[No other sessions to resume]")
+            console.print(Text("[No other sessions to resume]", style="dim"))
             return
 
         options = []
@@ -706,43 +843,79 @@ Configuration:
         # Load the session into both session_manager and chatbot
         loaded = self.session_manager.load_session(target_session.session_id)
         if loaded is None:
-            self._log("[Failed to load session]")
+            console.print(Panel("Failed to load session", style="red", border_style="red"))
             return
 
         if self.chatbot:
             self.chatbot.messages = loaded.messages.copy()
         self.session_id = loaded.session_id
-        self._log(f"[Resumed session: {self.session_id}]")
-        msg_count = loaded.message_count
-        self._log(f"[{msg_count} previous messages loaded]")
+        console.print()
+        console.print(Text(f"Resumed session: {self.session_id}", style="bold green"))
+        console.print(Text(f"{loaded.message_count} previous messages loaded", style="dim green"))
 
     def _show_tools_status(self):
         """Show AI agent tools status."""
         if not self.toolkit or not self.settings.enable_tools:
-            self._log("[AI Tools: DISABLED - Set ENABLE_TOOLS=true in .env to enable]")
+            console.print()
+            console.print(
+                Panel(
+                    "AI Tools: DISABLED\nSet ENABLE_TOOLS=true in .env to enable",
+                    style="yellow",
+                    border_style="yellow",
+                    title="Tools",
+                )
+            )
             return
 
         tools_list = list(self.toolkit.tool_map.keys())
-        self._log(f"AI Tools: ENABLED ({len(tools_list)} tools available)")
-        self._log(f"Base directory: {self.toolkit.agent.base_dir}")
-        self._log("Available tools:")
-        for tool in tools_list:
-            self._log(f"  - {tool}")
+        console.print()
+        table = Table(
+            title=f"AI Tools ({len(tools_list)} available)",
+            border_style="cyan",
+            header_style="bold",
+        )
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Tool Name", style="cyan")
+        table.add_column("Status", style="green", width=10)
+
+        for i, tool in enumerate(tools_list, 1):
+            table.add_row(str(i), tool, "[green]✓[/]")
+
+        console.print(table)
 
         history = self.toolkit.get_tool_usage_history()
         if history:
-            self._log(f"Tool calls this session: {len(history)}")
+            console.print()
+            console.print(Text(f"Tool calls this session: {len(history)}", style="dim"))
 
     def _save_config(self):
         """Save current settings to data/config.json."""
         path = ConfigStore.save_config(self.settings)
-        self._log(f"[Config saved to {path}]")
+        console.print(Text(f"Config saved to {path}", style="dim green"))
 
-    def _apply_settings(self):
-        """Save config.json, reload settings, and update the chatbot reference."""
+    def _apply_settings(self, load_model_settings: bool = False):
+        """Save config.json, reload settings, and update the chatbot reference.
+
+        Args:
+            load_model_settings: If True, load model-specific settings (temperature,
+                max_tokens, enable_tools) for the current model.
+        """
         self._save_config()
         # Reload from config.json + .env
         self.settings = reload_settings()
+        # Load model-specific settings if requested
+        if load_model_settings:
+            applied = switch_model_settings(self.settings)
+            if applied:
+                model_key = (
+                    self.settings.openrouter_model
+                    if self.settings.api_provider == "openrouter"
+                    else self.settings.mistral_model
+                )
+                console.print()
+                console.print(
+                    Text(f"Loaded model-specific settings for: {model_key}", style="dim cyan")
+                )
         # Update chatbot's settings reference if chatbot exists
         if self.chatbot:
             self.chatbot.settings = self.settings
@@ -758,29 +931,38 @@ Configuration:
     def _show_settings(self):
         """Interactive settings menu using make_selection. Auto-saves every change."""
         while True:
-            print("\n" + "=" * 50)
-            print("  Echo Settings")
-            print("=" * 50)
-            print(f"  API Provider : {self.settings.api_provider}")
-            if self.settings.api_provider == "openrouter":
-                print(f"  Model        : {self.settings.openrouter_model}")
-            else:
-                print(f"  Model        : {self.settings.mistral_model}")
-            print(f"  Temperature  : {self.settings.temperature}")
-            print(f"  Max Tokens   : {self.settings.max_tokens}")
-            print(f"  Input Mode   : {self.settings.input_mode}")
-            print(f"  Output Mode  : {self.settings.output_mode}")
-            print(f"  TTS Voice    : {self.settings.tts_voice}")
-            print(f"  Whisper Model: {self.settings.whisper_model}")
-            print(f"  AI Tools     : {'Enabled' if self.settings.enable_tools else 'Disabled'}")
-            if self.settings.system_prompt:
-                prompt_preview = (
-                    self.settings.system_prompt[:60] + "..."
-                    if len(self.settings.system_prompt) > 60
-                    else self.settings.system_prompt
+            model_key = (
+                self.settings.openrouter_model
+                if self.settings.api_provider == "openrouter"
+                else self.settings.mistral_model
+            )
+            model = (
+                self.settings.openrouter_model
+                if self.settings.api_provider == "openrouter"
+                else self.settings.mistral_model
+            )
+
+            console.print()
+            console.print(
+                Panel(
+                    f"Provider: [{'bold blue' if self.settings.api_provider == 'openrouter' else 'bold magenta'}]{self.settings.api_provider.title()}[/]\n"
+                    f"Model: [bold]{model}[/]\n"
+                    f"Temperature: [yellow]{self.settings.temperature}[/] (for: [dim]{model_key}[/])\n"
+                    f"Max Tokens: [yellow]{self.settings.max_tokens}[/] (for: [dim]{model_key}[/])\n"
+                    f"Input Mode: [cyan]{self.settings.input_mode}[/]  |  Output: [cyan]{self.settings.output_mode}[/]\n"
+                    f"TTS Voice: [dim]{self.settings.tts_voice}[/]\n"
+                    f"Whisper Model: [dim]{self.settings.whisper_model}[/]\n"
+                    f"AI Tools: [{'green' if self.settings.enable_tools else 'red'}]{'Enabled' if self.settings.enable_tools else 'Disabled'}[/] (for: [dim]{model_key}[/])"
+                    + (
+                        f"\nSystem Prompt: [dim]{self.settings.system_prompt[:60]}...[/]"
+                        if self.settings.system_prompt
+                        else ""
+                    ),
+                    title="[bold]Echo Settings[/]",
+                    border_style="blue",
+                    padding=(1, 2),
                 )
-                print(f"  System Prompt: {prompt_preview}")
-            print("=" * 50)
+            )
 
             options = [
                 "API Provider",
@@ -812,8 +994,8 @@ Configuration:
                 except (KeyboardInterrupt, EOFError):
                     continue
                 object.__setattr__(self.settings, "api_provider", choice)
-                self._apply_settings()
-                self._log(f"[API provider saved: {choice}]")
+                self._apply_settings(load_model_settings=True)
+                console.print(Text(f"✓ API provider saved: {choice}", style="dim green"))
             elif selected == "Model":
                 if self.settings.api_provider == "openrouter":
                     all_models = [
@@ -849,8 +1031,8 @@ Configuration:
                     if not choice:
                         continue
                 object.__setattr__(self.settings, key, choice)
-                self._apply_settings()
-                self._log(f"[Model saved: {choice}]")
+                self._apply_settings(load_model_settings=True)
+                console.print(Text(f"✓ Model saved: {choice}", style="dim green"))
             elif selected == "Temperature":
                 all_temps = ["0.1", "0.3", "0.5", "0.7", "1.0", "1.5", "2.0"]
                 current = str(self.settings.temperature)
@@ -861,7 +1043,7 @@ Configuration:
                     continue
                 object.__setattr__(self.settings, "temperature", float(choice))
                 self._apply_settings()
-                self._log(f"[Temperature saved: {choice}]")
+                console.print(Text(f"✓ Temperature saved: {choice}", style="dim green"))
             elif selected == "Max Tokens":
                 all_tokens = ["256", "512", "1024", "2048", "4096"]
                 current = str(self.settings.max_tokens)
@@ -872,7 +1054,7 @@ Configuration:
                     continue
                 object.__setattr__(self.settings, "max_tokens", int(choice))
                 self._apply_settings()
-                self._log(f"[Max tokens saved: {choice}]")
+                console.print(Text(f"✓ Max tokens saved: {choice}", style="dim green"))
             elif selected == "Input Mode":
                 all_modes = ["text", "speech", "both"]
                 current = self.settings.input_mode
@@ -883,7 +1065,7 @@ Configuration:
                     continue
                 object.__setattr__(self.settings, "input_mode", choice)
                 self._apply_settings()
-                self._log(f"[Input mode saved: {choice}]")
+                console.print(Text(f"✓ Input mode saved: {choice}", style="dim green"))
             elif selected == "Output Mode":
                 all_modes = ["text", "speech", "both"]
                 current = self.settings.output_mode
@@ -894,7 +1076,7 @@ Configuration:
                     continue
                 object.__setattr__(self.settings, "output_mode", choice)
                 self._apply_settings()
-                self._log(f"[Output mode saved: {choice}]")
+                console.print(Text(f"✓ Output mode saved: {choice}", style="dim green"))
             elif selected == "TTS Voice":
                 all_voices = [
                     "en-US-JennyNeural",
@@ -922,7 +1104,7 @@ Configuration:
                         continue
                 object.__setattr__(self.settings, "tts_voice", choice)
                 self._apply_settings()
-                self._log(f"[TTS voice saved: {choice}]")
+                console.print(Text(f"✓ TTS voice saved: {choice}", style="dim green"))
             elif selected == "Whisper Model":
                 all_whisper = [
                     "tiny",
@@ -942,7 +1124,7 @@ Configuration:
                     continue
                 object.__setattr__(self.settings, "whisper_model", choice)
                 self._apply_settings()
-                self._log(f"[Whisper model saved: {choice}]")
+                console.print(Text(f"✓ Whisper model saved: {choice}", style="dim green"))
             elif selected == "AI Tools (Enable/Disable)":
                 current = "Enabled" if self.settings.enable_tools else "Disabled"
                 choice_options = [current, "Disabled" if current == "Enabled" else "Enabled"]
@@ -953,7 +1135,9 @@ Configuration:
                 val = choice == "Enabled"
                 object.__setattr__(self.settings, "enable_tools", val)
                 self._apply_settings()
-                self._log(f"[AI Tools: {'Enabled' if val else 'Disabled'}]")
+                console.print(
+                    Text(f"✓ AI Tools: {'Enabled' if val else 'Disabled'}", style="dim green")
+                )
             elif selected == "System Prompt":
                 self._log(f"Current: {self.settings.system_prompt}")
                 print(
@@ -966,7 +1150,7 @@ Configuration:
                 if prompt:
                     object.__setattr__(self.settings, "system_prompt", prompt)
                     self._apply_settings()
-                    self._log("[System prompt saved]")
+                    console.print(Text("✓ System prompt saved", style="dim green"))
 
     def _cleanup(self):
         """Clean up resources."""
@@ -986,7 +1170,7 @@ Configuration:
             if comp:
                 comp.cleanup()
         cleanup_temp_files()
-        self._log("Goodbye!")
+        print_goodbye()
 
     def run(self):
         """Main application loop - pure terminal I/O."""
@@ -1002,58 +1186,30 @@ Configuration:
                 not self.settings.openrouter_api_key
                 or self.settings.openrouter_api_key == "your_openrouter_api_key_here"
             ):
-                print("ERROR: OPENROUTER_API_KEY not configured!")
-                print("Add your API key to the .env file")
-                print("Get your key from: https://openrouter.ai/")
+                print_api_key_not_configured("openrouter", "https://openrouter.ai/")
                 sys.exit(1)
         elif self.settings.api_provider == "mistral":
             if (
                 not self.settings.mistral_api_key
                 or self.settings.mistral_api_key == "your_mistral_api_key_here"
             ):
-                print("ERROR: MISTRAL_API_KEY not configured!")
-                print("Add your API key to the .env file")
-                print("Get your key from: https://console.mistral.ai/")
+                print_api_key_not_configured("mistral", "https://console.mistral.ai/")
                 sys.exit(1)
 
         # Initialize components
         self._init_components()
         self.running = True
 
-        # Print welcome message
-        print("\n" + "=" * 60)
-        print("  Echo AI Chatbot - Pure Terminal Mode")
-        print("=" * 60)
-        if self.session_id:
-            print(f"  Session: {self.session_id}")
-        if self.settings.api_provider == "openrouter":
-            print("  Provider: OpenRouter")
-            print(f"  Model: {self.settings.openrouter_model}")
-        elif self.settings.api_provider == "mistral":
-            print("  Provider: Mistral")
-            print(f"  Model: {self.settings.mistral_model}")
-        print(f"  Input: {self.settings.input_mode} | Output: {self.settings.output_mode}")
-        print(f"  Temperature: {self.settings.temperature}")
-        if self.settings.enable_tools:
-            print(
-                f"  AI Tools: Enabled ({len(self.toolkit.tool_map) if self.toolkit else 0} tools)"
-            )
-        print("=" * 60)
-
-        if self.settings.input_mode in ("speech", "both"):
-            print("\nVoice: Press CAPS LOCK to record, press again to stop")
-            print("Text:  Type your message and press ENTER")
-        else:
-            print("\nType your message and press ENTER")
-
-        print("Type /help for commands, /quit to exit")
-        print("-" * 60)
+        # Print welcome banner with Rich
+        print_banner(self.session_id, self.settings)
 
         # Start Caps Lock monitor if speech input enabled
         if self.settings.input_mode in ("speech", "both"):
             self._start_caps_lock_monitor()
 
         try:
+            logger = logging.getLogger(__name__)
+            logger.info("Entering main chat loop")
             while self.running:
                 # Don't prompt if currently speaking, recording, or processing voice
                 if self.speaking:
@@ -1071,10 +1227,14 @@ Configuration:
                 # Get user input - show "You: " BEFORE typing using readline
                 try:
                     user_input = self._get_input_with_prompt().strip()
+                    logger.debug("User input received: %s", repr(user_input[:100]))
                 except EOFError:
+                    logger.info("EOF received, exiting")
                     user_input = "/quit"
                 except KeyboardInterrupt:
-                    self._log("\n[Interrupted]")
+                    logger.info("Keyboard interrupt received")
+                    console.print()
+                    console.print(Text("[Interrupted]", style="dim yellow"))
                     break
 
                 if not user_input:
@@ -1082,25 +1242,31 @@ Configuration:
 
                 # Handle commands
                 if user_input.startswith("/"):
-                    self._log(f"You: {user_input}")
+                    logger.info("Command received: %s", user_input)
+                    print_user_message(user_input)
                     if self._handle_command(user_input):
                         break
                 else:
                     # Display user input AFTER submission
-                    self._log(f"You: {user_input}")
+                    logger.info("Chat message received: %s", user_input[:100])
+                    print_user_message(user_input)
                     # Process as chat input
                     self._process_text_input(user_input)
 
         except Exception as e:
-            self._log(f"\n[Error: {e}]")
+            logger.error("Fatal error in main loop: %s", e, exc_info=True)
+            console.print()
+            console.print(
+                Panel(f"Error: {e}", style="red", border_style="red", title="Fatal Error")
+            )
         finally:
             self._cleanup()
 
     def _get_input_with_prompt(self) -> str:
-        """Get user input with 'You: ' prefix that stays on the line."""
+        """Get user input with styled 'You: ' prefix that stays on the line."""
         try:
             __import__("readline")
-            return input("You: ")
+            return console.input(Text("You: ", style="bold green"))
         except ImportError:
             # Fallback for systems without readline
             return input()
@@ -1112,9 +1278,11 @@ def main() -> None:
         app = EchoConsoleApp()
         app.run()
     except KeyboardInterrupt:
-        pass
+        console.print()
+        console.print(Text("Exiting...", style="dim cyan"))
     except Exception as e:
-        print(f"\nError: {e}")
+        console.print()
+        console.print(Panel(f"Error: {e}", style="red", border_style="red", title="Fatal Error"))
         sys.exit(1)
 
 
